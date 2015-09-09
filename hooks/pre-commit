@@ -1,0 +1,20 @@
+#!/opt/bb/bin/bash
+
+## Various checks, pre-commit
+
+##
+## Make sure emacs buffers are written
+##
+tl=$(git rev-parse --show-toplevel)
+bads=$(find -P $tl -name \.#\*)
+bad=$(echo $bads | wc -w)
+if ((bad != 0))
+then
+    echo "Bailing on commit. Write your emacs buffers corresponding to these emacs backup files first."
+    for b in $bads
+    do
+        echo $b
+    done
+    exit 1
+fi
+exit 0
