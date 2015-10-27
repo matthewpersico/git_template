@@ -1,20 +1,84 @@
 #!/opt/bb/bin/bash
 
+##
 ## Various checks, pre-commit
+##
+
+## We use a temp file to process output instead of $() capturing so we don't
+## lose the newlines...
+tfile=$(mktemp)
+
+## ...and we set up a trap for cleanup
+trap finish EXIT SIGINT
+
+## Assume correctness
+exitval=0
+
+finish ()
+{
+    if [ -e $tfile ]
+    then
+        rm -rf $tfile
+    fi
+}
+
+## Convenience function
+check ()
+{
+    typeset tfile=$1
+    shift
+    tcount=$(wc -l $tfile | sed 's/ .*//')
+    if [ $tcount != 0 ]
+    then
+        echo $*
+        cat $tfile
+        exitval=1
+    fi
+}
+
+## Where are we?
+tl=$(git rev-parse --show-toplevel)
+
+## What could be committed?
+for f in $(git  st --porcelain -uno)
+do
+    if [ -f $f ] ## Filters out the deleted files (can't search them) and the
+                 ## status indicators
+    then
+        files="$files $f"
+    elif [ -d $f ]
+    then
+        dirs="$dirs $f"
+        files="$files $(find $f -type f)"
+    fi
+done
 
 ##
-## Make sure emacs buffers are written
+## The tests...
 ##
-tl=$(git rev-parse --show-toplevel)
-bads=$(find -P $tl -name \.#\*)
-bad=$(echo $bads | wc -w)
-if ((bad != 0))
-then
-    echo "Bailing on commit. Write your emacs buffers corresponding to these emacs backup files first."
-    for b in $bads
-    do
-        echo $b
-    done
-    exit 1
-fi
-exit 0
+
+## Make sure all emacs buffers are written.
+find -P $tl -name \.#\* 1>$tfile 2>&1
+check $tfile \
+      "Write your emacs buffers corresponding to these emacs backup files first."
+
+## Make sure we have no Perl commented out code.
+grep -n -E '=for (later|remove_before_commit)' $files 1>$tfile 2>&1
+check $tfile \
+      "One or more files has suspicious Perl commenting. Delete old code, do not just comment it out."
+
+## Make sure we have no Perl debug statements.
+grep -n -E '\$DB::s(ingle|tep)' $files 1>$tfile 2>&1
+check $tfile \
+      "One or more files has Perl-debugger-related statements. Please remove instrumentation."
+
+## Make sure we turn back on any taints we commented out for testing. Make sure
+## we don't grab the shebang line.
+grep -n -E '^#.*-.*T' $files | grep -v perl 1>$tfile 2>&1
+check $tfile \
+      "One or more files has its taint flag commented out. Please restore it."
+
+##
+## Done
+##
+exit $exitval
