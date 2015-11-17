@@ -63,18 +63,22 @@ check $tfile \
       "Write your emacs buffers corresponding to these emacs backup files first."
 
 ## Make sure we have no Perl commented out code.
-grep -n -E '=for (later|remove_before_commit)' $files 1>$tfile 2>&1
+grep -H -n -E '=for (later|comparison)' $files 1>$tfile 2>&1
 check $tfile \
-      "One or more files has suspicious Perl commenting. Delete old code, do not just comment it out."
+      "One or more files has suspicious Perl commenting. Delete old code, do not just comment it out. Don't add inactive code until you are ready to use it."
+
+grep -H -n -E '=for (remove|restore)_before_commit' $files 1>$tfile 2>&1
+check $tfile \
+      "One or more files has suspicious Perl commenting. Put back original code; remove your short term test changes."
 
 ## Make sure we have no Perl debug statements.
-grep -n -E '\$DB::s(ingle|tep)' $files 1>$tfile 2>&1
+grep -H -n -E '\$DB::s(ingle|tep)' $files 1>$tfile 2>&1
 check $tfile \
       "One or more files has Perl-debugger-related statements. Please remove instrumentation."
 
 ## Make sure we turn back on any taints we commented out for testing. Make sure
 ## we don't grab the shebang line.
-grep -n -E '^#.*-.*T' $files | grep -v perl 1>$tfile 2>&1
+grep -H  -n -E '^#.*-.*T' $files | grep -v perl 1>$tfile 2>&1
 check $tfile \
       "One or more files has its taint flag commented out. Please restore it."
 
