@@ -4,15 +4,55 @@
 ## Various checks, pre-commit
 ##
 
+usage ()
+{
+    echo "Usage: pre-commit [--tags] [ --edit] [--help]"
+    echo "       --tags - print all the tags that trip this check"
+    echo "       --edit - edit all files that trip this check"
+    echo "       --help - this message"
+}
+
+##
+## args and opts
+##
+typeset opt_edit=0
+typeset OPTSARGS=$(getopt -o teh --long tags,edit,help -n 'pre-commit' -- "$@")
+eval set -- "$OPTSARGS"
+while true
+do
+    case "$1" in
+        -t|--tags)
+            shift
+            grep '##tags' ${BASH_SOURCE[0]} | sed 's/##tags//' | grep -v grep
+            exit 0 ;;
+        -e|--edit)
+            shift
+            opt_edit=1 ;;
+        -h|--help)
+            usage
+            exit 0 ;;
+        --) shift; break ;; ## end of opts, remaining $*, if any, are args
+        *) echo "Internal error!"; usage; return 1 ;;
+    esac
+done
+
+##
+## inits and globals
+##
+
 ## We use a temp file to process output instead of $() capturing so we don't
 ## lose the newlines...
-tfile=$(mktemp)
+typeset tfile=$(mktemp)
 
 ## ...and we set up a trap for cleanup
 trap finish EXIT SIGINT
 
 ## Assume correctness
-exitval=0
+typeset exitval=0
+
+##
+## Functions
+##
 
 finish ()
 {
@@ -22,28 +62,55 @@ finish ()
     fi
 }
 
-## Convenience function
 check ()
 {
-    typeset tfile=$1
+    local tfile=$1
     shift
-    tcount=$(wc -l $tfile | sed 's/ .*//')
+    local tcount=$(wc -l $tfile | sed 's/ .*//')
     if [ $tcount != 0 ]
     then
+        echo
         echo $*
         cat $tfile
         exitval=1
+        return 1
+    else
+        return 0
     fi
 }
 
-## Where are we?
-tl=$(git rev-parse --show-toplevel)
+typeset editlist=''
+addedit ()
+{
+    if [ "$opt_edit" = '1' ]
+    then
+        local tfile=$1
+        shift
+        editlist="$editlist $(cat $tfile | sed 's/:.*//' | sort -u)"
+    fi
+}
 
-## What could be committed?
-for f in $(git  st --porcelain -uno)
+##
+## Main
+#$
+
+## Get the top level of the Where are we?
+typeset tl=$(git rev-parse --show-toplevel)
+typeset potentials
+if [ -z "$1" ]
+then
+    ## Figure out what could be committed from the current state of the repo.
+    ## $(git st --porcelain -uno)
+    potentials=$(git st -v | grep -- 'diff --git' | cut -d' ' -f 4 | sed 's|b/||')
+else
+    ## Use whatever is on the command line, probably as a manual pre-commit check.
+    potentials="$@"
+fi
+
+typeset f
+for f in $potentials
 do
-    if [ -f $f ] ## Filters out the deleted files (can't search them) and the
-                 ## status indicators
+    if [ -f $f ]
     then
         files="$files $f"
     elif [ -d $f ]
@@ -63,26 +130,56 @@ check $tfile \
       "Write your emacs buffers corresponding to these emacs backup files first."
 
 ## Make sure we have no Perl commented out code.
-grep -H -n -E '=for (later|comparison)' $files 1>$tfile 2>&1
+grep -H -n -E '=for (later|comparison|comment)' $files 1>$tfile 2>&1
 check $tfile \
-      "One or more files has suspicious Perl commenting. Delete old code, do not just comment it out. Don't add inactive code until you are ready to use it."
+      "One or more files contain suspicious Perl commenting. Delete old code, do not just comment it out. Don't add inactive code until you are ready to use it."
+## Can't addedit $tfile here because it's the emacs backup, not the master, in the file.
 
 grep -H -n -E '=for (remove|restore)_before_commit' $files 1>$tfile 2>&1
 check $tfile \
-      "One or more files has suspicious Perl commenting. Put back original code; remove your short term test changes."
+      "One or more files contain suspicious Perl commenting. Put back original code; remove your short term test changes."
+[ "$?" = '1' ] && addedit $tfile
 
 ## Make sure we have no Perl debug statements.
 grep -H -n -E '\$DB::s(ingle|tep)' $files 1>$tfile 2>&1
 check $tfile \
       "One or more files has Perl-debugger-related statements. Please remove instrumentation."
+[ "$?" = '1' ] && addedit $tfile
 
 ## Make sure we turn back on any taints we commented out for testing. Make sure
 ## we don't grab the shebang line.
-grep -H  -n -E '^#.*-.*T' $files | grep -v perl 1>$tfile 2>&1
+grep -H -n -E '^#.*-.*T' $files | grep -v perl 1>$tfile 2>&1
 check $tfile \
       "One or more files has its taint flag commented out. Please restore it."
+[ "$?" = '1' ] && addedit $tfile
+
+## As a last resort, we allow the text <gitcommitstop>, usually as comment in
+## the given language
+grep -H -n -E '<gitcommitstop>' $files 1>$tfile 2>&1
+check $tfile \
+      "One or more files has an explicit commit stop. Please address."
+[ "$?" = '1' ] && addedit $tfile
 
 ##
 ## Done
 ##
+if [ -n "$editlist" ]
+then
+    echo
+    echo "-e|--edit specified. Editing"
+    echo "$editlist"
+    xo $editlist
+fi
 exit $exitval
+
+##tags emacs backup files\.
+##tags     '.#*'
+##tags Perl multiline comments.
+##tags     '=for (later|comparison|comment)'
+##tags     '=for (remove|restore)_before_commit'
+##tags Perl debugger statements.
+##tags     '$DB::s(ingle|tep)'
+##tags Perl taint checks turned off (debugging).
+##tags     '^#.*-.*T'
+##tags Explicit commit stop. Add as a one-line comment.
+##tags     '<gitcommitstop>'
