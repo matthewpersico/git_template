@@ -70,7 +70,7 @@ check ()
     if [ $tcount != 0 ]
     then
         echo
-        echo $*
+        echo "pre-commit hook: $*"
         cat $tfile
         exitval=1
         return 1
@@ -120,6 +120,21 @@ do
     fi
 done
 
+for file in $files
+do
+    head -1 $file | grep perl | grep -E '^#!' > /dev/null
+    if [ "$?" == '0' ]
+    then
+        perlfiles="$perlfiles $i"
+    else
+        echo $file | grep -iE '\.(p[ml]|t|sgi)$' > /dev/null
+        if [ "$?" == '0' ]
+        then
+            perlfiles="$perlfiles $i"
+        fi
+    fi
+done
+
 ##
 ## The tests...
 ##
@@ -128,6 +143,11 @@ done
 find -P $tl -name \.#\* 1>$tfile 2>&1
 check $tfile \
       "Write your emacs buffers corresponding to these emacs backup files first."
+
+##
+## These are Perl constructs, but we could use them temporarily in any file
+## type.
+##
 
 ## Make sure we have no Perl commented out code.
 grep -H -n -E '=for (later|comparison|comment)' $files 1>$tfile 2>&1
@@ -140,18 +160,25 @@ check $tfile \
       "One or more files contain suspicious Perl commenting. Put back original code; remove your short term test changes."
 [ "$?" = '1' ] && addedit $tfile
 
-## Make sure we have no Perl debug statements.
-grep -H -n -E '\$DB::s(ingle|tep)' $files 1>$tfile 2>&1
-check $tfile \
-      "One or more files has Perl-debugger-related statements. Please remove instrumentation."
-[ "$?" = '1' ] && addedit $tfile
+##
+## These are Perl constructs that only make sense in Perl code.
+##
 
-## Make sure we turn back on any taints we commented out for testing. Make sure
-## we don't grab the shebang line.
-grep -H -n -E '^#.*-.*T' $files | grep -v perl 1>$tfile 2>&1
-check $tfile \
-      "One or more files has its taint flag commented out. Please restore it."
-[ "$?" = '1' ] && addedit $tfile
+if [ -n "$perlfiles" ]
+then
+    ## Make sure we have no Perl debug statements.
+    grep -H -n -E '\$DB::s(ingle|tep)' $perlfiles 1>$tfile 2>&1
+    check $tfile \
+          "One or more files has Perl-debugger-related statements. Please remove instrumentation."
+    [ "$?" = '1' ] && addedit $tfile
+
+    ## Make sure we turn back on any taints we commented out for testing. Make sure
+    ## we don't grab the shebang line (which would contain the word 'perl').
+    grep -H -n -E '^#.*-.*T' $perlfiles | grep -v perl 1>$tfile 2>&1
+    check $tfile \
+          "One or more files has its taint flag commented out. Please restore it."
+    [ "$?" = '1' ] && addedit $tfile
+fi
 
 ## As a last resort, we allow the text <gitcommitstop>, usually as comment in
 ## the given language
