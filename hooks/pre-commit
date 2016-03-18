@@ -180,9 +180,9 @@ then
     [ "$?" = '1' ] && addedit $tfile
 fi
 
-## As a last resort, we allow the text <gitcommitstop>, usually as comment in
-## the given language
-grep -H -n -E '<gitcommitstop>' $files 1>$tfile 2>&1
+## As a last resort, we allow the text strings <gitcommitstop> and <GCS>,
+## usually as comment in the given language
+grep -H -n -E '<gitcommitstop|GCS>' $files 1>$tfile 2>&1
 check $tfile \
       "One or more files has an explicit commit stop. Please address."
 [ "$?" = '1' ] && addedit $tfile
@@ -208,5 +208,7 @@ exit $exitval
 ##tags     '$DB::s(ingle|tep)'
 ##tags Perl taint checks turned off (debugging).
 ##tags     '^#.*-.*T'
-##tags Explicit commit stop. Add as a one-line comment.
-##tags     '<gitcommitstop>'
+##tags Explicit commit stop. Add as a comment in
+##tags the given language. Perl examples:
+##tags     '$foo=bar; ## <gitcommitstop> dev only'
+##tags     '$foo=bar; ## <GCS> dev only'
