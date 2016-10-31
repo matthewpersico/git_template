@@ -17,7 +17,7 @@ usage ()
 ## args and opts
 ##
 typeset opt_edit=0
-typeset opt_verbose=0
+typeset opt_verbose=1
 typeset OPTSARGS=$(getopt -o tevh --long tags,edit,verbose,help -n 'pre-commit' -- "$@")
 eval set -- "$OPTSARGS"
 while true
@@ -98,36 +98,19 @@ addedit ()
 
 ## Get the top level of the Where are we?
 typeset tl=$(git rev-parse --show-toplevel)
-typeset potentials
-if [ -z "$1" ]
-then
-    ## Figure out what could be committed from the current state of the repo.
-    ((opt_verbose)) && echo "Looking for files..."
-    potentials=$(git st --porcelain -uno | sed 's/.* //')
-#    potentials=$(git diff | grep -- 'diff --git' | cut -d' ' -f 4 | sed 's|b/||')
-else
-    ## Use whatever is on the command line, probably as a manual pre-commit check.
-    potentials="$@"
-fi
-
-typeset f
-for f in $potentials
-do
-    if [ -f $f ]
-    then
-        files="$files $f"
-    elif [ -d $f ]
-    then
-        dirs="$dirs $f"
-        files="$files $(find $f -type f)"
-    fi
-done
+typeset files=$(git status --porcelain  | perl -ane 'print $F[1],qq(\n) if m/^[ACM] /')
+typeset delfiles=$(git status --porcelain  | perl -ane 'print $F[1],qq(\n) if m/^[D] /')
 
 if ((opt_verbose))
 then
     fcount=$(echo $files | wc -l)
     text='files to process'
     ((fcount == 1 )) && text='file to process'
+    echo $fcount $text
+
+    fcount=$(echo $delfiles | wc -l)
+    text='files to be skipped because they are being deleted'
+    ((fcount == 1 )) && text='file to be skipped because it is being deleted'
     echo $fcount $text
 fi
 
@@ -150,7 +133,8 @@ done
 ## The tests...
 ##
 
-## Make sure all emacs buffers are written.
+## Make sure all emacs buffers are written, regardless of whether or not its
+## corresponding file is being committed.
 find -P $tl -name \.#\* 1>$tfile 2>&1
 check $tfile \
       "Write your emacs buffers corresponding to these emacs backup files first."
@@ -189,7 +173,7 @@ then
         ## we don't grab the shebang line (which would contain the word 'perl').
         grep -H -n -E '^#.*-.*T' $perlfiles | grep -v perl 1>$tfile 2>&1
         check $tfile \
-              "One or more files has its taint flag commented out. Please restore it."
+              "One or more files has a pattern that matches a commented out taint flag. Please 1restore it."
         [ "$?" = '1' ] && addedit $tfile
 
         ## Check for testing utils
