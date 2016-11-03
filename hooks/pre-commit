@@ -99,19 +99,34 @@ addedit ()
 ## Get the top level of the Where are we?
 typeset tl=$(git rev-parse --show-toplevel)
 typeset files=$(git status --porcelain  | perl -ane 'print $F[1],qq(\n) if m/^[ACM] /')
-typeset delfiles=$(git status --porcelain  | perl -ane 'print $F[1],qq(\n) if m/^[D] /')
+typeset delfiles=$(git status --porcelain  | perl -ane 'print $F[1],qq(\n) if m/^D /')
+typeset huhfiles=$(git status --porcelain  | perl -ane 'print $F[1],qq(\n) if m/^\? /')
 
 if ((opt_verbose))
 then
-    fcount=$(echo $files | wc -l)
+    echo pre-commit hook: Current status
+    git status --porcelain
+
+    fcount=$(echo $files | wc -w)
     text='files to process'
     ((fcount == 1 )) && text='file to process'
-    echo $fcount $text
+    echo pre-commit hook: $fcount $text
 
-    fcount=$(echo $delfiles | wc -l)
+    fcount=$(echo $delfiles | wc -w)
     text='files to be skipped because they are being deleted'
-    ((fcount == 1 )) && text='file to be skipped because it is being deleted'
-    echo $fcount $text
+    if ((fcount))
+    then
+        ((fcount == 1 )) && text='file to be skipped because it is being deleted'
+        echo pre-commit  hook: $fcount $text
+    fi
+
+    fcount=$(echo $huhfiles | wc -w)
+    text='files to be skipped because they are not being tracked'
+    if ((fcount))
+    then
+        ((fcount == 1 )) && text='file to be skipped because it is not being tracked'
+        echo pre-commit  hook: $fcount $text
+    fi
 fi
 
 for file in $files
