@@ -6,9 +6,8 @@
 
 usage ()
 {
-    echo "Usage: pre-commit [--tags] [ --edit] [--verbose] [--help]"
+    echo "Usage: pre-commit [--tags] [--verbose] [--help]"
     echo "       --tags - print all the tags that trip this check"
-    echo "       --edit - edit all files that trip this check"
     echo "       --verbose - print progress"
     echo "       --help - this message"
 }
@@ -16,9 +15,8 @@ usage ()
 ##
 ## args and opts
 ##
-typeset opt_edit=0
 typeset opt_verbose=1
-typeset OPTSARGS=$(getopt -o tevh --long tags,edit,verbose,help -n 'pre-commit' -- "$@")
+typeset OPTSARGS=$(getopt -o tevh --long tags,verbose,help -n 'pre-commit' -- "$@")
 eval set -- "$OPTSARGS"
 while true
 do
@@ -27,9 +25,6 @@ do
             shift
             grep '##tags' ${BASH_SOURCE[0]} | sed 's/##tags//' | grep -v grep
             exit 0 ;;
-        -e|--edit)
-            shift
-            opt_edit=1 ;;
         -v|--verbose)
             shift
             opt_verbose=1 ;;
@@ -84,12 +79,9 @@ check ()
     fi
 }
 
-typeset editlist=''
-addedit ()
+pre_commit_echo ()
 {
-    local tfile=$1
-    shift
-    editlist="$(echo $editlist $(cat $tfile | sed 's/:.*//') | tr ' ' '\n' | sort -u)"
+    echo pre-commit hook: "$@"
 }
 
 ##
@@ -104,13 +96,13 @@ typeset huhfiles=$(git status --porcelain  | perl -ane 'print $F[1],qq(\n) if m/
 
 if ((opt_verbose))
 then
-    echo pre-commit hook: Current status
+    pre_commit_echo Current status
     git status --porcelain
 
     fcount=$(echo $files | wc -w)
     text='files to process'
     ((fcount == 1 )) && text='file to process'
-    echo pre-commit hook: $fcount $text
+    pre_commit_echo $fcount $text
 
     fcount=$(echo $delfiles | wc -w)
     text='files to be skipped because they are being deleted'
@@ -165,12 +157,10 @@ then
     grep -H -n -E '=for (later|comparison|comment)' $files 1>$tfile 2>&1
     check $tfile \
           "One or more files contain suspicious Perl commenting. Delete old code, do not just comment it out. Don't add inactive code until you are ready to use it."
-    ## Can't addedit $tfile here because it's the emacs backup, not the master, in the file.
 
     grep -H -n -E '=for (remove|restore)_before_commit' $files 1>$tfile 2>&1
     check $tfile \
           "One or more files contain suspicious Perl commenting. Put back original code; remove your short term test changes."
-    [ "$?" = '1' ] && addedit $tfile
 
     ##
     ## These are Perl constructs that only make sense in Perl code.
@@ -182,21 +172,37 @@ then
         grep -H -n -E '\$DB::s(ingle|tep)' $perlfiles 1>$tfile 2>&1
         check $tfile \
               "One or more files has Perl-debugger-related statements. Please remove instrumentation."
-        [ "$?" = '1' ] && addedit $tfile
 
         ## Make sure we turn back on any taints we commented out for testing. Make sure
         ## we don't grab the shebang line (which would contain the word 'perl').
         grep -H -n -E '^#.*-.*T' $perlfiles | grep -v perl 1>$tfile 2>&1
         check $tfile \
               "One or more files has a pattern that matches a commented out taint flag. Please 1restore it."
-        [ "$?" = '1' ] && addedit $tfile
 
         ## Check for testing utils
         grep -H -n -E 'TestingUtils' $perlfiles | grep -v TestingUtils.pm  1>$tfile 2>&1
         check $tfile \
               "One or more files is using the TestingUtils module. Please remove it."
-        [ "$?" = '1' ] && addedit $tfile
 
+        gitroot=$(git rev-parse --show-toplevel)
+
+        ## Check for perl tests
+        if [ -e $gitroot/t/bin/apply-compile-check-everywhere ]
+        then
+            ((verbose)) && echo "Checking perl code for errors"
+            $gitroot/t/bin/apply-compile-check-everywhere $perlfiles 1>$tfile 2>&1
+            check $tfile \
+                  "One or more files has syntax errors. Please check."
+        fi
+
+        ## Check for perl tests
+        if [ -e $gitroot/t/bin/apply-perltidy-everywhere ]
+        then
+            ((verbose)) && echo "Checking perl code for format"
+            $gitroot/t/bin/apply-perltidy-everywhere $perlfiles 1>$tfile 2>&1
+            check $tfile \
+                  "One or more files has formatting errors. Please check."
+        fi
     fi
 
     ## As a last resort, we allow the text strings <gitcommitstop> and <GCS>,
@@ -204,29 +210,11 @@ then
     grep -H -n -E '<gitcommitstop|GCS>' $files 1>$tfile 2>&1
     check $tfile \
           "One or more files has an explicit commit stop. Please address."
-    [ "$?" = '1' ] && addedit $tfile
 fi
 
 ##
 ## Done
 ##
-if [ -n "$editlist" ] && ((opt_edit))
-then
-    echo
-    echo "-e|--edit specified. Editing"
-    echo "$editlist"
-    xo $editlist
-fi
-
-if ((opt_verbose))
-then
-    elcount=$(echo $editlist | wc -w)
-    text="$elcount files to be fixed"
-    ((elcount == 1)) && text="$elcount file to be fixed"
-    echo
-    echo $text
-fi
-
 exit $exitval
 
 ##tags emacs backup files\.
