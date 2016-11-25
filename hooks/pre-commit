@@ -6,17 +6,27 @@
 
 usage ()
 {
-    echo "Usage: pre-commit [--tags] [--verbose] [--help]"
+    echo "Usage: pre-commit [--tags] [--verbose] [--help] [--skip ... [ --skip ... ] ]"
     echo "       --tags - print all the tags that trip this check"
     echo "       --verbose - print progress"
     echo "       --help - this message"
+    echo "       --skip - skip one or more validations:"
+    echo "                perlcompile"
+    echo "                perltidy"
+    echo "                perltaint"
+    echo "       When actually run as a hook, set GIT_PRE_COMMIT_HOOK_ARGS to a single"
+    echo "       string with the options you want to use before committing:"
+    echo
+    echo "       GIT_PRE_COMMIT_HOOK_ARGS='--verbose --skip perltidy' git commit ..."
+    echo
 }
 
 ##
 ## args and opts
 ##
+typeset -A skips
 typeset opt_verbose=1
-typeset OPTSARGS=$(getopt -o tevh --long tags,verbose,help -n 'pre-commit' -- "$@")
+typeset OPTSARGS=$(getopt -o ts:vh --long tags,skip:,verbose,help -n 'pre-commit' -- $GIT_PRE_COMMIT_HOOK_ARGS "$@")
 eval set -- "$OPTSARGS"
 while true
 do
@@ -25,6 +35,10 @@ do
             shift
             grep '##tags' ${BASH_SOURCE[0]} | sed 's/##tags//' | grep -v grep
             exit 0 ;;
+        -s|--skip)
+            shift
+            skips[$1]=1;
+            shift ;;
         -v|--verbose)
             shift
             opt_verbose=1 ;;
@@ -32,7 +46,7 @@ do
             usage
             exit 0 ;;
         --) shift; break ;; ## end of opts, remaining $*, if any, are args
-        *) echo "Internal error!"; usage; return 1 ;;
+        *) echo "Internal error!"; usage; exit 1 ;;
     esac
 done
 
@@ -175,9 +189,12 @@ then
 
         ## Make sure we turn back on any taints we commented out for testing. Make sure
         ## we don't grab the shebang line (which would contain the word 'perl').
-        grep -H -n -E '^#.*-.*T' $perlfiles | grep -v perl 1>$tfile 2>&1
-        check $tfile \
-              "One or more files has a pattern that matches a commented out taint flag. Please 1restore it."
+        if [ -z "${skips[perltaint]}" ]
+        then
+            grep -H -n -E '^#.*-.*T' $perlfiles | grep -v perl 1>$tfile 2>&1
+            check $tfile \
+                  "One or more files has a pattern that matches a commented out taint flag. Please 1restore it."
+        fi
 
         ## Check for testing utils
         grep -H -n -E 'TestingUtils' $perlfiles | grep -v TestingUtils.pm  1>$tfile 2>&1
@@ -187,7 +204,7 @@ then
         gitroot=$(git rev-parse --show-toplevel)
 
         ## Check for perl tests
-        if [ -e $gitroot/t/bin/apply-compile-check-everywhere ]
+        if [ -z "${skips[perlcompile]}" ] && [ -e $gitroot/t/bin/apply-compile-check-everywhere ]
         then
             ((verbose)) && echo "Checking perl code for errors"
             $gitroot/t/bin/apply-compile-check-everywhere $perlfiles 1>$tfile 2>&1
@@ -196,7 +213,7 @@ then
         fi
 
         ## Check for perl tests
-        if [ -e $gitroot/t/bin/apply-perltidy-everywhere ]
+        if [ -z "${skips[perltidy]}" ] && [ -e $gitroot/t/bin/apply-perltidy-everywhere ]
         then
             ((verbose)) && echo "Checking perl code for format"
             $gitroot/t/bin/apply-perltidy-everywhere $perlfiles 1>$tfile 2>&1
@@ -232,3 +249,6 @@ exit $exitval
 ##tags the given language. Perl examples:
 ##tags     '$foo=bar; ## <gitcommitstop> dev only'
 ##tags     '$foo=bar; ## <GCS> dev only'
+##tags t/bin/apply-compile-check-everywhere
+##tags t/bin/apply-perltidy-everywhere
+##tags     Run these tests, if available.
