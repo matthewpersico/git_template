@@ -6,7 +6,9 @@
 
 usage ()
 {
-    echo "Usage: pre-commit [--tags] [--verbose] [--help] [--skip ... [ --skip ... ] ]"
+    echo "Usage: pre-commit [-a] [--tags] [--verbose] [--help] [--skip ... [ --skip ... ] ]"
+    echo "       -a     - mimic the -a of git commit and process files that are modified"
+    echo "                in addition to those that have been added (staged)"
     echo "       --tags - print all the tags that trip this check"
     echo "       --verbose - print progress"
     echo "       --help - this message"
@@ -29,11 +31,15 @@ usage ()
 ##
 typeset -A skips
 typeset opt_verbose=1
-typeset OPTSARGS=$(getopt -o ts:vh --long tags,skip:,verbose,help -n 'pre-commit' -- $GIT_PRE_COMMIT_HOOK_ARGS "$@")
+typeset opt_a=0
+typeset OPTSARGS=$(getopt -o ats:vh --long tags,skip:,verbose,help -n 'pre-commit' -- $GIT_PRE_COMMIT_HOOK_ARGS "$@")
 eval set -- "$OPTSARGS"
 while true
 do
     case "$1" in
+        -a)
+            shift
+            opt_a=1 ;;
         -t|--tags)
             shift
             grep '##tags' ${BASH_SOURCE[0]} | sed 's/##tags//' | grep -v grep
@@ -108,7 +114,13 @@ check ()
 
 ## Get the top level of the Where are we?
 typeset tl=$(git rev-parse --show-toplevel)
-typeset files=$(git status --porcelain  | perl -ane 'print $F[1],qq(\n) if m/^[ACM] /')
+typeset files
+if ((opt_a))
+then
+    files=$(git status --porcelain  | perl -ane 'print $F[1],qq(\n) if m/^[ACM] / or m/^.[ACM]/')
+else
+    files=$(git status --porcelain  | perl -ane 'print $F[1],qq(\n) if m/^[ACM] /')
+fi
 typeset delfiles=$(git status --porcelain  | perl -ane 'print $F[1],qq(\n) if m/^D /')
 typeset huhfiles=$(git status --porcelain  | perl -ane 'print $F[1],qq(\n) if m/^\? /')
 
@@ -229,7 +241,17 @@ then
         ## Check for perl tests
         if [ -z "${skips[perlcompile]}" ] && [ -e $gitroot/t/bin/apply-compile-check-everywhere ]
         then
-            $gitroot/t/bin/apply-compile-check-everywhere $perlfiles 1>$tfile 2>&1
+            cartonexec=''
+            if [ -e $gitroot/runtests.local ]
+            then
+                pre_commit_echo "Sourcing $gitroot/runtests.local for perl compile tests."
+                . /$gitroot/runtests.local
+                if [ "$RUNTESTS_USE_CARTON" = '1' ]
+                then
+                    cartonexec='carton exec'
+                fi
+            fi
+            $cartonexec $gitroot/t/bin/apply-compile-check-everywhere $perlfiles 1>$tfile 2>&1
             check $tfile \
                   "One or more files has syntax errors. Please check." \
                   "No Perl compile errors."
