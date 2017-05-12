@@ -112,11 +112,12 @@ check ()
 ## Main
 ##
 
-## Get the top level of the Where are we?
+## Get the top level dir of the repo
 typeset tl=$(git rev-parse --show-toplevel)
 typeset files
 if ((opt_a))
 then
+    ## Like git's -a, process modified files even if not 'git add'ed
     files=$(git status --porcelain  | perl -ane 'print $F[1],qq(\n) if m/^[ACM] / or m/^.[ACM]/')
 else
     files=$(git status --porcelain  | perl -ane 'print $F[1],qq(\n) if m/^[ACM] /')
@@ -126,7 +127,7 @@ typeset huhfiles=$(git status --porcelain  | perl -ane 'print $F[1],qq(\n) if m/
 
 if ((opt_verbose))
 then
-    tmpf=$(mktemp)
+    typeset tmpf=$(mktemp)
     git status --porcelain 1>$tmpf 2>&1
     if [ -s $tmpf ]
     then
@@ -135,8 +136,8 @@ then
     fi
     \rm -f $tmpf
 
-    fcount=$(echo $files | wc -w)
-    text='files to process'
+    typeset fcount=$(echo $files | wc -w)
+    typeset text='files to process'
     ((fcount == 1 )) && text='file to process'
     pre_commit_echo $fcount $text
 
@@ -157,6 +158,9 @@ then
     fi
 fi
 
+## Isolate groups of files here. So far, only checking for Perl.
+typeset perlfiles
+typeset file
 for file in $files
 do
     head -1 $file | grep perl | grep -E '^#!' > /dev/null
@@ -179,6 +183,10 @@ done
 if [ -n "$files" ]
 then
     touch $tfile
+
+    ##
+    ## check: files being edited, not saved
+    ##
     for i in $files
     do
         emacsfile="$(dirname $(realpath $i))/.#$(basename $i)"
@@ -192,9 +200,11 @@ then
           "No open emacs buffers."
 
     ##
+    ## check: constructs for bypassed or dead code
+    ##
+
     ## These two are Perl constructs, but we could use them temporarily in any
     ## file type.
-    ##
     grep -H -n -E '=for (later|comparison|comment)' $files 1>$tfile 2>&1
     check $tfile \
           "One or more files contain suspicious Perl commenting. Delete old code, do not just comment it out. Don't add inactive code until you are ready to use it." \
@@ -211,14 +221,20 @@ then
         ## These are Perl constructs that only make sense in Perl code.
         ##
 
-        ## Make sure we have no Perl debug statements.
+        ##
+        ## check: Perl debug statements
+        ##
         grep -H -n -E '\$DB::s(ingle|tep)' $perlfiles 1>$tfile 2>&1
         check $tfile \
               "One or more files has Perl-debugger-related statements. Please remove instrumentation." \
               "No Perl-debugger-related statements."
 
-        ## Make sure we turn back on any taints we commented out for testing. Make sure
-        ## we don't grab the shebang line (which would contain the word 'perl').
+        ##
+        ## check: taints turned off for testing
+        ##
+
+        ## Make sure we don't grab the shebang line (which would contain the
+        ## word 'perl').
         if [ -z "${skips[perltaint]}" ]
         then
             grep -H -n -E '^#.*-.*T' $perlfiles | grep -v perl 1>$tfile 2>&1
@@ -230,7 +246,9 @@ then
             pre_commit_echo "Skipping Perl taint flag check, by request."
         fi
 
-        ## Check for testing utils
+        ##
+        ## check: testing utilities left in the code
+        ##
         grep -H -n -E 'TestingUtils' $perlfiles | grep -v TestingUtils.pm  1>$tfile 2>&1
         check $tfile \
               "One or more files is using the TestingUtils module. Please remove it." \
@@ -238,7 +256,11 @@ then
 
         gitroot=$(git rev-parse --show-toplevel)
 
-        ## Check for perl tests
+        ##
+        ## check: repo compile tests
+        ##
+
+        ## If the repo has them, piggy back off of them
         if [ -z "${skips[perlcompile]}" ] && [ -e $gitroot/t/bin/apply-compile-check-everywhere ]
         then
             cartonexec=''
@@ -260,7 +282,11 @@ then
             pre_commit_echo "Skipping Perl compile check, by request."
         fi
 
-        ## Check for perl tests
+        ##
+        ## check: repo tidy tests
+        ##
+
+        ## If the repo has them, piggy back off of them
         if [ -z "${skips[perltidy]}" ] && [ -e $gitroot/t/bin/apply-perltidy-everywhere ]
         then
             $gitroot/t/bin/apply-perltidy-everywhere $perlfiles 1>$tfile 2>&1
@@ -273,8 +299,13 @@ then
         fi
     fi
 
+    ##
+    ## check: git commit stop check
+    ##
+
     ## As a last resort, we allow the text strings <gitcommitstop> and <GCS>,
-    ## usually as comment in the given language
+    ## usually as comment in the given language, to be used to stop the commit
+    ## of code that we know we need to clean up before committing.
     grep -H -n -E '<gitcommitstop|GCS>' $files 1>$tfile 2>&1
     check $tfile \
           "One or more files has an explicit commit stop. Please address." \
