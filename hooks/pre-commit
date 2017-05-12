@@ -6,7 +6,9 @@
 
 usage ()
 {
-    echo "Usage: pre-commit [--tags] [--verbose] [--help] [--skip ... [ --skip ... ] ]"
+    echo "Usage: pre-commit [-a] [--tags] [--verbose] [--help] [--skip ... [ --skip ... ] ]"
+    echo "       -a     - mimic the -a of git commit and process files that are modified"
+    echo "                in addition to those that have been added (staged)"
     echo "       --tags - print all the tags that trip this check"
     echo "       --verbose - print progress"
     echo "       --help - this message"
@@ -21,16 +23,23 @@ usage ()
     echo
 }
 
+## Don't do my checks if Perl testing involves git commands.
+[ "$HARNESS_ACTIVE" = '1' ] && exit 0
+
 ##
 ## args and opts
 ##
 typeset -A skips
 typeset opt_verbose=1
-typeset OPTSARGS=$(getopt -o ts:vh --long tags,skip:,verbose,help -n 'pre-commit' -- $GIT_PRE_COMMIT_HOOK_ARGS "$@")
+typeset opt_a=0
+typeset OPTSARGS=$(getopt -o ats:vh --long tags,skip:,verbose,help -n 'pre-commit' -- $GIT_PRE_COMMIT_HOOK_ARGS "$@")
 eval set -- "$OPTSARGS"
 while true
 do
     case "$1" in
+        -a)
+            shift
+            opt_a=1 ;;
         -t|--tags)
             shift
             grep '##tags' ${BASH_SOURCE[0]} | sed 's/##tags//' | grep -v grep
@@ -76,6 +85,11 @@ finish ()
     fi
 }
 
+pre_commit_echo ()
+{
+    echo pre-commit hook: "$@"
+}
+
 check ()
 {
     local tfile=$1
@@ -84,18 +98,14 @@ check ()
     if [ $tcount != 0 ]
     then
         echo
-        echo "pre-commit hook: $*"
+        pre_commit_echo "$1"
         cat $tfile
         exitval=1
         return 1
     else
+        [ -n "$2" ] && ((opt_verbose==1)) && pre_commit_echo "$2"
         return 0
     fi
-}
-
-pre_commit_echo ()
-{
-    echo pre-commit hook: "$@"
 }
 
 ##
@@ -104,14 +114,26 @@ pre_commit_echo ()
 
 ## Get the top level of the Where are we?
 typeset tl=$(git rev-parse --show-toplevel)
-typeset files=$(git status --porcelain  | perl -ane 'print $F[1],qq(\n) if m/^[ACM] /')
+typeset files
+if ((opt_a))
+then
+    files=$(git status --porcelain  | perl -ane 'print $F[1],qq(\n) if m/^[ACM] / or m/^.[ACM]/')
+else
+    files=$(git status --porcelain  | perl -ane 'print $F[1],qq(\n) if m/^[ACM] /')
+fi
 typeset delfiles=$(git status --porcelain  | perl -ane 'print $F[1],qq(\n) if m/^D /')
 typeset huhfiles=$(git status --porcelain  | perl -ane 'print $F[1],qq(\n) if m/^\? /')
 
 if ((opt_verbose))
 then
-    pre_commit_echo Current status
-    git status --porcelain
+    tmpf=$(mktemp)
+    git status --porcelain 1>$tmpf 2>&1
+    if [ -s $tmpf ]
+    then
+        pre_commit_echo Current status:
+        cat $tmpf
+    fi
+    \rm -f $tmpf
 
     fcount=$(echo $files | wc -w)
     text='files to process'
@@ -154,38 +176,46 @@ done
 ## The tests...
 ##
 
-## Make sure all emacs buffers are written, regardless of whether or not its
-## corresponding file is being committed.
-find -P $tl -name \.#\* 1>$tfile 2>&1
-check $tfile \
-      "Write your emacs buffers corresponding to these emacs backup files first."
-
-##
-## These are Perl constructs, but we could use them temporarily in any file
-## type.
-##
-
 if [ -n "$files" ]
 then
-    ## Make sure we have no Perl commented out code.
+    touch $tfile
+    for i in $files
+    do
+        emacsfile="$(dirname $(realpath $i))/.#$(basename $i)"
+        if [ -h $emacsfile ]
+        then
+            echo $i >> $tfile
+        fi
+    done
+    check $tfile \
+          "Write your emacs buffers for these files:" \
+          "No open emacs buffers."
+
+    ##
+    ## These two are Perl constructs, but we could use them temporarily in any
+    ## file type.
+    ##
     grep -H -n -E '=for (later|comparison|comment)' $files 1>$tfile 2>&1
     check $tfile \
-          "One or more files contain suspicious Perl commenting. Delete old code, do not just comment it out. Don't add inactive code until you are ready to use it."
+          "One or more files contain suspicious Perl commenting. Delete old code, do not just comment it out. Don't add inactive code until you are ready to use it." \
+          "No suspicious Perl commenting, old code."
 
     grep -H -n -E '=for (remove|restore)_before_commit' $files 1>$tfile 2>&1
     check $tfile \
-          "One or more files contain suspicious Perl commenting. Put back original code; remove your short term test changes."
-
-    ##
-    ## These are Perl constructs that only make sense in Perl code.
-    ##
+          "One or more files contain suspicious Perl commenting. Put back original code; remove your short term test changes." \
+          "No suspicious Perl commenting, test code."
 
     if [ -n "$perlfiles" ]
     then
+        ##
+        ## These are Perl constructs that only make sense in Perl code.
+        ##
+
         ## Make sure we have no Perl debug statements.
         grep -H -n -E '\$DB::s(ingle|tep)' $perlfiles 1>$tfile 2>&1
         check $tfile \
-              "One or more files has Perl-debugger-related statements. Please remove instrumentation."
+              "One or more files has Perl-debugger-related statements. Please remove instrumentation." \
+              "No Perl-debugger-related statements."
 
         ## Make sure we turn back on any taints we commented out for testing. Make sure
         ## we don't grab the shebang line (which would contain the word 'perl').
@@ -193,32 +223,53 @@ then
         then
             grep -H -n -E '^#.*-.*T' $perlfiles | grep -v perl 1>$tfile 2>&1
             check $tfile \
-                  "One or more files has a pattern that matches a commented out taint flag. Please 1restore it."
+                  "One or more files has a pattern that matches a commented out taint flag. Please restore it." \
+                  "No commented out taint flags."
+        elif((opt_verbose))
+        then
+            pre_commit_echo "Skipping Perl taint flag check, by request."
         fi
 
         ## Check for testing utils
         grep -H -n -E 'TestingUtils' $perlfiles | grep -v TestingUtils.pm  1>$tfile 2>&1
         check $tfile \
-              "One or more files is using the TestingUtils module. Please remove it."
+              "One or more files is using the TestingUtils module. Please remove it." \
+              "TestingUtils module not found."
 
         gitroot=$(git rev-parse --show-toplevel)
 
         ## Check for perl tests
         if [ -z "${skips[perlcompile]}" ] && [ -e $gitroot/t/bin/apply-compile-check-everywhere ]
         then
-            ((verbose)) && echo "Checking perl code for errors"
-            $gitroot/t/bin/apply-compile-check-everywhere $perlfiles 1>$tfile 2>&1
+            cartonexec=''
+            if [ -e $gitroot/runtests.local ]
+            then
+                pre_commit_echo "Sourcing $gitroot/runtests.local for perl compile tests."
+                . /$gitroot/runtests.local
+                if [ "$RUNTESTS_USE_CARTON" = '1' ]
+                then
+                    cartonexec='carton exec'
+                fi
+            fi
+            $cartonexec $gitroot/t/bin/apply-compile-check-everywhere $perlfiles 1>$tfile 2>&1
             check $tfile \
-                  "One or more files has syntax errors. Please check."
+                  "One or more files has syntax errors. Please check." \
+                  "No Perl compile errors."
+        elif((opt_verbose))
+        then
+            pre_commit_echo "Skipping Perl compile check, by request."
         fi
 
         ## Check for perl tests
         if [ -z "${skips[perltidy]}" ] && [ -e $gitroot/t/bin/apply-perltidy-everywhere ]
         then
-            ((verbose)) && echo "Checking perl code for format"
             $gitroot/t/bin/apply-perltidy-everywhere $perlfiles 1>$tfile 2>&1
             check $tfile \
-                  "One or more files has formatting errors. Please check."
+                  "One or more files has formatting errors. Please check." \
+                  "No Perl perltidy errors."
+        elif((opt_verbose))
+        then
+            pre_commit_echo "Skipping Perl perltidy check, by request."
         fi
     fi
 
@@ -226,12 +277,16 @@ then
     ## usually as comment in the given language
     grep -H -n -E '<gitcommitstop|GCS>' $files 1>$tfile 2>&1
     check $tfile \
-          "One or more files has an explicit commit stop. Please address."
+          "One or more files has an explicit commit stop. Please address." \
+          "No explicit commit stops."
 fi
 
 ##
 ## Done
 ##
+tty > /dev/null
+ttystatus=$?
+((ttystatus==0)) && ((exitval==0)) && echo "Ok to commit"
 exit $exitval
 
 ##tags emacs backup files\.
