@@ -313,13 +313,21 @@ then
     fi
 
     ##
+    ## check; git conflict markers
+    ##
+    grep -H -n -E '^<<<<<<<|>>>>>>>$' $files 1>$tfile 2>&1
+    check $tfile \
+          "One or more files contains a git conflict marker. Please address." \
+          "No git conflict markers."
+
+    ##
     ## check: git commit stop check
     ##
 
     ## As a last resort, we allow the text strings <gitcommitstop> and <GCS>,
     ## usually as comment in the given language, to be used to stop the commit
     ## of code that we know we need to clean up before committing.
-    grep -H -n -E '<gitcommitstop|GCS>' $files 1>$tfile 2>&1
+    grep -H -n -E '<(gitcommitstop|GCS)>' $files 1>$tfile 2>&1
     check $tfile \
           "One or more files has an explicit commit stop. Please address." \
           "No explicit commit stops."
