@@ -320,7 +320,13 @@ fi
 ##
 tty > /dev/null
 ttystatus=$?
-((ttystatus==0)) && ((exitval==0)) && echo "Ok to commit"
+if ((ttystatus==0)) && ((exitval==0))
+then
+    pre_commit_echo "Ok to commit"
+else
+    pre_commit_echo "Commit will abort"
+fi
+
 exit $exitval
 
 ##tags emacs backup files\.
