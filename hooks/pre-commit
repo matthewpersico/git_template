@@ -15,7 +15,6 @@ usage ()
     echo "       --skip - skip one or more validations:"
     echo "                perlcompile"
     echo "                perltidy"
-    echo "                perltaint"
     echo "       When actually run as a hook, set GIT_PRE_COMMIT_HOOK_ARGS to a single"
     echo "       string with the options you want to use before committing:"
     echo
@@ -239,23 +238,6 @@ then
               "No Perl-debugger-related statements."
 
         ##
-        ## check: taints turned off for testing
-        ##
-
-        ## Make sure we don't grab the shebang line (which would contain the
-        ## word 'perl').
-        if [ -z "${skips[perltaint]}" ]
-        then
-            grep -H -n -E '^#.*-.*T' $perlfiles | grep -v perl 1>$tfile 2>&1
-            check $tfile \
-                  "One or more files has a pattern that matches a commented out taint flag. Please restore it." \
-                  "No commented out taint flags."
-        elif((opt_verbose))
-        then
-            pre_commit_echo "Skipping Perl taint flag check, by request."
-        fi
-
-        ##
         ## check: testing utilities left in the code
         ##
         grep -H -n -E 'TestingUtils' $perlfiles | grep -v TestingUtils.pm  1>$tfile 2>&1
@@ -348,8 +330,6 @@ exit $exitval
 ##tags     '=for (remove|restore)_before_commit'
 ##tags Perl debugger statements.
 ##tags     '$DB::s(ingle|tep)'
-##tags Perl taint checks turned off (debugging).
-##tags     '^#.*-.*T'
 ##tags The presence of the testing module TestingUtils.
 ##tags     use TestingUtils
 ##tags Explicit commit stop. Add as a comment in
