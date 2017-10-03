@@ -26,9 +26,14 @@ usage ()
 [ "$HARNESS_ACTIVE" = '1' ] && exit 0
 
 
-pre_commit_echo ()
+pre_commit_ok_echo ()
 {
     echo pre-commit hook: "$@"
+}
+
+pre_commit_error_echo ()
+{
+    echo 'ERROR>>>' pre-commit hook: "$@"
 }
 
 ## See if we are in a real commit or not
@@ -36,7 +41,7 @@ typeset dry_run=0
 if [ -z "$GIT_AUTHOR_DATE" ]
 then
     dry_run=1
-    pre_commit_echo "Dry run mode - no commit in progress."
+    pre_commit_ok_echo "Dry run mode - no commit in progress."
 fi
 
 ##
@@ -105,13 +110,15 @@ check ()
     local tcount=$(wc -l $tfile | sed 's/ .*//')
     if [ $tcount != 0 ]
     then
+        ## This is the error message
         echo
-        pre_commit_echo "$1"
+        pre_commit_error_echo "$1"
         cat $tfile
         exitval=1
         return 1
     else
-        [ -n "$2" ] && ((opt_verbose==1)) && pre_commit_echo "$2"
+        ## This is the ok message
+        [ -n "$2" ] && ((opt_verbose==1)) && pre_commit_ok_echo "$2"
         return 0
     fi
 }
@@ -139,7 +146,7 @@ then
     git status --porcelain 1>$tmpf 2>&1
     if [ -s $tmpf ]
     then
-        pre_commit_echo Current status:
+        pre_commit_ok_echo Current status:
         cat $tmpf
     fi
     \rm -f $tmpf
@@ -147,7 +154,7 @@ then
     typeset fcount=$(echo $files | wc -w)
     typeset text='files to process'
     ((fcount == 1 )) && text='file to process'
-    pre_commit_echo $fcount $text
+    pre_commit_ok_echo $fcount $text
 
     fcount=$(echo $delfiles | wc -w)
     text='files to be skipped because they are being deleted'
@@ -254,15 +261,15 @@ then
         ## If the repo has them, piggy back off of them
         if [ -n "${skips[perlcompile]}" ]
         then
-            ((opt_verbose)) && pre_commit_echo "Skipping Perl compile check, by request."
+            ((opt_verbose)) && pre_commit_ok_echo "Skipping Perl compile check, by request."
         elif [ ! -e $gitroot/t/bin/apply-compile-check-everywhere ]
         then
-            ((opt_verbose)) && pre_commit_echo "Skipping Perl compile check, no test file."
+            ((opt_verbose)) && pre_commit_ok_echo "Skipping Perl compile check, no test file."
         else
             cartonexec=''
             if [ -e $gitroot/runtests.local ]
             then
-                pre_commit_echo "Sourcing $gitroot/runtests.local for perl compile tests."
+                pre_commit_ok_echo "Sourcing $gitroot/runtests.local for perl compile tests."
                 . /$gitroot/runtests.local
                 if [ "$RUNTESTS_USE_CARTON" = '1' ]
                 then
@@ -282,10 +289,10 @@ then
         ## If the repo has them, piggy back off of them
         if [ -n "${skips[perltidy]}" ]
         then
-            ((opt_verbose)) && pre_commit_echo "Skipping Perl perltidy check, by request."
+            ((opt_verbose)) && pre_commit_ok_echo "Skipping Perl perltidy check, by request."
         elif [ ! -e $gitroot/t/bin/apply-perltidy-everywhere ]
         then
-            ((opt_verbose)) && pre_commit_echo "Skipping Perl perltidy check, no test file."
+            ((opt_verbose)) && pre_commit_ok_echo "Skipping Perl perltidy check, no test file."
         else
             $gitroot/t/bin/apply-perltidy-everywhere $perlfiles 1>$tfile 2>&1
             check $tfile \
@@ -318,15 +325,12 @@ fi
 ##
 ## Done
 ##
-tty > /dev/null
-ttystatus=$?
-if ((ttystatus==0)) && ((exitval==0))
+if ((exitval==0))
 then
-    pre_commit_echo "Ok to commit"
+    pre_commit_ok_echo "Ok to commit"
 else
-    pre_commit_echo "Commit will abort"
+    pre_commit_error_echo "Commit will abort"
 fi
-
 exit $exitval
 
 ##tags emacs backup files\.
