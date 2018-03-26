@@ -181,47 +181,22 @@ then
 fi
 
 ## Isolate groups of files here. So far, only checking for Perl.
-declare perlfiles
-declare shellfiles
+declare -a perlfiles
+declare -a shellfiles
 declare do_shellcheck=0
 declare file
-shellcheck -V 1>/dev/null 2>&1 && do_shellcheck=1
 
+shellcheck -V 1>/dev/null 2>&1 && do_shellcheck=1
 for file in "${files[@]}"
 do
-    declare assigned=0
-
-    if ((!assigned))
+    if head -1 "$file" | grep perl | grep -E '^#!' > /dev/null \
+            ||
+            echo "$file" | grep -iE '\.(p[ml]|t|sgi)$' > /dev/null
     then
-        if head -1 "$file" | grep perl | grep -E '^#!' > /dev/null
-        then
-            [ -n "$perlfiles" ] \
-                && perlfiles="$perlfiles $file" \
-                && perlfiles="$file"
-            assigned=1
-        fi
-    fi
-
-    if ((!assigned))
+        perlfiles+=("$file")
+    elif head -1 "$file" | grep -E -- '-\*- sh|env bash|/bash|/sh' 1>/dev/null 2>&1
     then
-        if echo "$file" | grep -iE '\.(p[ml]|t|sgi)$' > /dev/null
-        then
-            [ -n "$perlfiles" ] \
-                && perlfiles="$perlfiles $file" \
-                && perlfiles="$file"
-            assigned=1
-        fi
-    fi
-
-    if ((!assigned))
-    then
-        if head -1 "$file" | grep -E -- '-\*- sh|env bash|/bash|/sh' 1>/dev/null 2>&1
-        then
-            [ -n "$shellfiles" ] \
-                && shellfiles="$shellfiles $file" \
-                && shellfiles="$file"
-            assigned=1
-        fi
+        shellfiles+=("$file")
     fi
 done
 
@@ -264,13 +239,13 @@ then
           "One or more files contain suspicious Perl commenting. Put back original code; remove your short term test changes." \
           "No suspicious Perl commenting, test code."
 
-    if [ -n "$perlfiles" ]
+    if ((${#perlfiles[@]}))
     then
         ##
         ## check: Perl debug statements
         ##
         # shellcheck disable=2016
-        grep -H -n -E '\$DB::s(ingle|tep)' "$perlfiles" 1>"$tfile" 2>&1
+        grep -H -n -E '\$DB::s(ingle|tep)' "${perlfiles[@]}" 1>"$tfile" 2>&1
         check "$tfile" \
               "One or more files has Perl-debugger-related statements. Please remove instrumentation." \
               "No Perl-debugger-related statements."
@@ -278,7 +253,7 @@ then
         ##
         ## check: testing utilities left in the code
         ##
-        grep -H -n -E 'TestingUtils' "$perlfiles" | grep -v TestingUtils.pm  1>"$tfile" 2>&1
+        grep -H -n -E 'TestingUtils' "${perlfiles[@]}" | grep -v TestingUtils.pm  1>"$tfile" 2>&1
         check "$tfile" \
               "One or more files is using the TestingUtils module. Please remove it." \
               "TestingUtils module not found."
@@ -308,7 +283,7 @@ then
                     cartonexec='carton exec'
                 fi
             fi
-            $cartonexec "$gitroot/t/bin/apply-compile-check-everywhere" "$perlfiles" 1>"$tfile" 2>&1
+            $cartonexec "$gitroot/t/bin/apply-compile-check-everywhere" "${perlfiles[@]}" 1>"$tfile" 2>&1
             check "$tfile" \
                   "One or more files has syntax errors. Please review." \
                   "No Perl compile errors."
@@ -326,18 +301,18 @@ then
         then
             ((opt_verbose)) && pre_commit_ok_echo "Skipping Perl perltidy check, no test file."
         else
-            "$gitroot/t/bin/apply-perltidy-everywhere" "$perlfiles" 1>"$tfile" 2>&1
+            "$gitroot/t/bin/apply-perltidy-everywhere" "${perlfiles[@]}" 1>"$tfile" 2>&1
             check "$tfile" \
                   "One or more files has formatting errors. Please review." \
                   "No Perl perltidy errors."
         fi
     fi
 
-    if [ -n "$shellfiles" ]
+    if ((${#shellfiles[@]}))
     then
         if ((do_shellcheck==1))
         then
-            shellcheck "$shellfiles" 1>"$tfile" 2>&1
+            shellcheck "${shellfiles[@]}" 1>"$tfile" 2>&1
             check "$tfile" \
                   "One of more files has failed shellcheck checks. Please review." \
                   "No shellcheck errors."
