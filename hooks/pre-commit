@@ -4,32 +4,8 @@
 ## Various checks, pre-commit
 ##
 
-usage ()
-{
-    echo "Usage: pre-commit [-a] [--tags] [--verbose] [--help] [--skip ... [ --skip ... ] ]"
-    echo "       -a     - mimic the -a of git commit and process files that are modified"
-    echo "                in addition to those that have been added (staged)"
-    echo "       --tags - print all the tags that trip this check"
-    echo "       --verbose - print progress"
-    echo "       --help - this message"
-    echo "       --skip - skip one or more validations:"
-    echo "                perlcompile"
-    echo "                perltidy"
-    echo "                perl (both compile and tidy)"
-    echo "                shellcheck"
-    echo "                shell (short for shellcheck)"
-    echo "       When actually run as a hook, set GIT_PRE_COMMIT_HOOK_ARGS to a single"
-    echo "       string with the options you want to use before committing:"
-    echo
-    echo "       GIT_PRE_COMMIT_HOOK_ARGS='--verbose --skip perltidy' git commit ..."
-    echo
-    echo "       You can also run it in 'test' mode by direct invocation in the .git"
-    echo "       directory."
-}
-
 ## Don't do my checks if Perl testing involves git commands.
 [ "$HARNESS_ACTIVE" = '1' ] && exit 0
-
 
 pre_commit_ok_echo ()
 {
@@ -48,10 +24,14 @@ declare -A skips
 declare opt_verbose=1
 declare opt_a=0
 declare moreopts
+declare helpnotallowed=0
+declare opt_a_notallowed=0
 moreopts=1
 if [ -n "$GIT_PRE_COMMIT_HOOK_ARGS" ]
 then
     eval set -- "$GIT_PRE_COMMIT_HOOK_ARGS"
+    helpnotallowed=1
+    opt_a_notallowed=1
 fi
 
 while [[ "$1" =~ ^- ]] && ((moreopts))
@@ -65,24 +45,33 @@ do
 
     case $option in
         a)
-            opt_a=1 ;;
-        t|tags)
-            grep '##tags' "${BASH_SOURCE[0]}" | sed 's/##tags//' | grep -v grep
-            exit 0 ;;
+            if((opt_a_notallowed))
+            then
+                pre_commit_ok_echo "--a not allowed in GIT_PRE_COMMIT_HOOK_ARGS. Ignoring."
+            else
+                opt_a=1
+            fi
+            ;;
         s|skip)
             skips[$1]=1;
             shift ;;
-        v|verbose)
-            opt_verbose=1 ;;
+        q|quiet)
+            opt_verbose=0 ;;
         x)
             set -x
             trap "set +x" EXIT
             ;;
         h|help)
-            usage
-            exit 0 ;;
+            if((helpnotallowed))
+            then
+                pre_commit_ok_echo "--help not allowed in GIT_PRE_COMMIT_HOOK_ARGS. Ignoring."
+            else
+                pod2text "$0" | ${PAGER:cat}
+                exit 0
+            fi
+            ;;
         --) shift; break ;; ## end of opts, remaining $*, if any, are args
-        *) echo "Internal error!"; usage; exit 1 ;;
+        *) echo "Internal error!"; pod2text "$0" | ${PAGER:cat}; exit 1 ;;
     esac
 done
 
@@ -365,19 +354,72 @@ else
 fi
 exit $exitval
 
-##tags emacs backup files\.
-##tags     '.#*'
-##tags Perl multiline comments.
-##tags     '=for (later|comparison|comment|review)'
-##tags     '=for (remove|restore)_before_commit'
-##tags Perl debugger statements.
-##tags     '$DB::s(ingle|tep)'
-##tags The presence of the testing module TestingUtils.
-##tags     use TestingUtils
-##tags Explicit commit stop. Add as a comment in
-##tags the given language. Perl examples:
-##tags     '$foo=bar; ## <gitcommitstop> dev only'
-##tags     '$foo=bar; ## <GCS> dev only'
-##tags t/bin/apply-compile-check-everywhere
-##tags t/bin/apply-perltidy-everywhere
-##tags     Run these tests, if available.
+:<<'__PODUSAGE__'
+=head1 NAME
+
+pre-commit - a script for the pre-commit hook in git
+
+=head1 SYNOPSIS
+
+   pre-commit [-a] [--quiet] [--help] [--skip ... [ --skip ... ] ]
+
+   pre-commit --help
+
+=head1 DESCRIPTION
+
+This script is not executed directly, but rather by git during a commit. You
+can test it by running ".git/hooks/pre-commit" in your current repo; the commit
+will not run in this mode, obviously.
+
+You can also run it with --help to get this man page.
+
+=head1 ARGUMENTS
+
+None
+
+<soapbox> You'd think that git would pass us the files it's about to commit,
+but no; we have to run git status commands in porcelain mode to determine what
+files are about to be committed. </soapbox>
+
+=over 4
+
+=back
+
+=head1 OPTIONS
+
+When running with a real commit, options must be passed in the envvar
+GIT_PRE_COMMIT_HOOK_ARGS as a single string before the git command:
+
+    GIT_PRE_COMMIT_HOOK_ARGS="--quiet --skip perltidy" git commit ...
+
+Note that we filter out --help if you specify it.
+
+=over 4
+
+=item -a
+
+Mimic the -a of git commit and process all files that are modified, staged or
+not. This is only needed for test mode; in live mode, if you pass -a to git
+commit, by the time the hook is invoked, even the non-staged files appear to be
+staged. Do NOT use this on a real commit; let the commit command Do The Right
+Thing.
+
+=item --quiet
+
+Do not print the progress messages in from the hook.
+
+=item --skip
+
+Skip one or more validations:
+
+  perlcompile
+  perltidy
+  perl (both compile and tidy)
+  shellcheck
+  shell (short for shellcheck)
+
+=back
+
+=cut
+
+__PODUSAGE__
