@@ -15,7 +15,9 @@ usage ()
     echo "       --skip - skip one or more validations:"
     echo "                perlcompile"
     echo "                perltidy"
+    echo "                perl (both compile and tidy)"
     echo "                shellcheck"
+    echo "                shell (short for shellcheck)"
     echo "       When actually run as a hook, set GIT_PRE_COMMIT_HOOK_ARGS to a single"
     echo "       string with the options you want to use before committing:"
     echo
@@ -47,6 +49,11 @@ declare opt_verbose=1
 declare opt_a=0
 declare moreopts
 moreopts=1
+if [ -n "$GIT_PRE_COMMIT_HOOK_ARGS" ]
+then
+    eval set -- "$GIT_PRE_COMMIT_HOOK_ARGS"
+fi
+
 while [[ "$1" =~ ^- ]] && ((moreopts))
 do
     ## Strip all leading dashes here so that -foo and --foo can both
@@ -186,7 +193,8 @@ declare -a shellfiles
 declare do_shellcheck=0
 declare file
 
-shellcheck -V 1>/dev/null 2>&1 && do_shellcheck=1
+( [ -z "${skips[shellcheck]}" ] || [ -z "${skips[shell]}" ] ) \
+    && shellcheck -V 1>/dev/null 2>&1 && do_shellcheck=1
 for file in "${files[@]}"
 do
     if head -1 "$file" | grep perl | grep -E '^#!' > /dev/null \
@@ -265,7 +273,8 @@ then
         ##
 
         ## If the repo has them, piggy back off of them
-        if [ -n "${skips[perlcompile]}" ]
+        if [ -n "${skips[perlcompile]}" ] \
+               || [ -n "${skips[perl]}" ]
         then
             ((opt_verbose)) && pre_commit_ok_echo "Skipping Perl compile check, by request."
         elif [ ! -e "$gitroot/t/bin/apply-compile-check-everywhere" ]
@@ -294,7 +303,8 @@ then
         ##
 
         ## If the repo has them, piggy back off of them
-        if [ -n "${skips[perltidy]}" ]
+        if [ -n "${skips[perltidy]}" ] \
+               || [ -n "${skips[perl]}" ]
         then
             ((opt_verbose)) && pre_commit_ok_echo "Skipping Perl perltidy check, by request."
         elif [ ! -e "$gitroot/t/bin/apply-perltidy-everywhere" ]
