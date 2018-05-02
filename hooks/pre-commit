@@ -377,30 +377,30 @@ This hook performs the following checks and will abort the commit if any fail:
 
 =over 4
 
-=item emacs backup files
+=item o emacs backup files
 
 Files matching the format '.#*' and matching a file about to be committed. This means you haven't saved the file, so you're about to commit something out of date.
 
-=item Perl multiline comments.
+=item o Perl multiline comments.
 
 These are used to temporarily comment out code, ususally for testing, should not be committed.
 
     =for (later|comparison|comment|review)
     =for (remove|restore)_before_commit
 
-=item Perl debugger statements.
+=item o Perl debugger statements.
 
 Don't leave debugger statements in production code.
 
     $DB::s(ingle|tep)
 
-=item The presence of the testing module TestingUtils.
+=item o The presence of the testing module TestingUtils.
 
 Not available in production, will cause load failure.
 
      use TestingUtils
 
-=item Explicit (G)it (C)ommit (S)top.
+=item o Explicit (G)it (C)ommit (S)top.
 
 These will stop a git commit. Use them to mark things you do not want to get into production code, but you are using for testing/diagnostics. Add as a comment in the language of the file. Perl examples:
 
@@ -409,13 +409,17 @@ These will stop a git commit. Use them to mark things you do not want to get int
 
 The part in the <> is what is checked; any text after is ignored.
 
-=item t/bin/apply-[compile-check|perltidy]-everywhere
+=item o t/bin/apply-[compile-check|perltidy]-everywhere
 
 If these files are found, we run them in case they were not run during testing. If they fail, the commit is aborted. Skippable with --skip perl (for both) or --skip perlcompile and --skip perltidy.
 
-=item shellcheck
+=item o shellcheck
 
 If shellcheck is available (and --skip shellcheck not specified), runs shellcheck against any file where the first line looks like a shell shebang or an emacs shell file marker.
+
+=item o git merge conflict markers
+
+We don't let you commit code with conflict markers.
 
 =back
 
