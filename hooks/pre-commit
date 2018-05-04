@@ -27,9 +27,10 @@ declare moreopts
 declare helpnotallowed=0
 declare opt_a_notallowed=0
 moreopts=1
-if [ -n "$GIT_PRE_COMMIT_HOOK_ARGS" ]
+if [ -n "$GIT_PRE_COMMIT_HOOK_ARGS" ] \
+       || [ -n "$GPCHA" ]
 then
-    eval set -- "$GIT_PRE_COMMIT_HOOK_ARGS"
+    eval set -- "$GIT_PRE_COMMIT_HOOK_ARGS" "$GPCHA"
     helpnotallowed=1
     opt_a_notallowed=1
 fi
@@ -182,7 +183,7 @@ declare -a shellfiles
 declare do_shellcheck=0
 declare file
 
-( [ -z "${skips[shellcheck]}" ] || [ -z "${skips[shell]}" ] ) \
+( [ -z "${skips[shellcheck]}" ] && [ -z "${skips[shell]}" ] ) \
     && shellcheck -V 1>/dev/null 2>&1 && do_shellcheck=1
 for file in "${files[@]}"
 do
