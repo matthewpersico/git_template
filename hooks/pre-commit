@@ -27,9 +27,10 @@ declare moreopts
 declare helpnotallowed=0
 declare opt_a_notallowed=0
 moreopts=1
-if [ -n "$GIT_PRE_COMMIT_HOOK_ARGS" ]
+if [ -n "$GIT_PRE_COMMIT_HOOK_ARGS" ] \
+       || [ -n "$GPCHA" ]
 then
-    eval set -- "$GIT_PRE_COMMIT_HOOK_ARGS"
+    eval set -- "$GIT_PRE_COMMIT_HOOK_ARGS" "$GPCHA"
     helpnotallowed=1
     opt_a_notallowed=1
 fi
@@ -127,7 +128,9 @@ check ()
 ## Main
 ##
 
-## Get the top level dir of the repo
+##
+## Get the list of files being committed
+##
 declare -a files
 if ((opt_a))
 then
@@ -182,7 +185,7 @@ declare -a shellfiles
 declare do_shellcheck=0
 declare file
 
-( [ -z "${skips[shellcheck]}" ] || [ -z "${skips[shell]}" ] ) \
+( [ -z "${skips[shellcheck]}" ] && [ -z "${skips[shell]}" ] ) \
     && shellcheck -V 1>/dev/null 2>&1 && do_shellcheck=1
 for file in "${files[@]}"
 do
@@ -367,9 +370,10 @@ pre-commit - a script for the pre-commit hook in git
 
 =head1 DESCRIPTION
 
-This script is not executed directly, but rather by git during a commit. You
-can test it by running ".git/hooks/pre-commit" in your current repo; the commit
-will not run in this mode, obviously.
+This script is not executed directly, but rather by git during a commit. Place
+a copy of it in the '.git/hooks' directory of your local repo.  You can test it
+by running '.git/hooks/pre-commit' in your current repo; the commit will not
+run in this mode, obviously.
 
 You can also run it with --help to get this man page.
 
@@ -379,20 +383,25 @@ This hook performs the following checks and will abort the commit if any fail:
 
 =item o emacs backup files
 
-Files matching the format '.#*' and matching a file about to be committed. This means you haven't saved the file, so you're about to commit something out of date.
+Files matching the format '.#*' and matching a file about to be committed. This
+means you haven't saved the file, so you're about to commit something out of
+date.
 
 =item o Perl multiline comments.
 
-These are used to temporarily comment out code, ususally for testing, should not be committed.
+These are used to temporarily comment out code, usually for testing, should not
+be committed.
 
     =for (later|comparison|comment|review)
     =for (remove|restore)_before_commit
 
 =item o Perl debugger statements.
 
-Don't leave debugger statements in production code.
+Don't leave debugger statements of the form
 
     $DB::s(ingle|tep)
+
+in production code.
 
 =item o The presence of the testing module TestingUtils.
 
@@ -402,7 +411,10 @@ Not available in production, will cause load failure.
 
 =item o Explicit (G)it (C)ommit (S)top.
 
-These will stop a git commit. Use them to mark things you do not want to get into production code, but you are using for testing/diagnostics. Add as a comment in the language of the file. Perl examples:
+These will stop a git commit. Use this marker to mark code that you do not want
+to get into your repo. Examples would be code changed for
+testing/diagnostics. Add as a comment in the language of the file. Perl
+examples:
 
      $foo=bar; ## <gitcommitstop> dev only
      $foo=bar; ## <GCS> dev only
@@ -411,11 +423,15 @@ The part in the <> is what is checked; any text after is ignored.
 
 =item o t/bin/apply-[compile-check|perltidy]-everywhere
 
-If these files are found, we run them in case they were not run during testing. If they fail, the commit is aborted. Skippable with --skip perl (for both) or --skip perlcompile and --skip perltidy.
+If these files are found, we run them in case they were not run during
+testing. If they fail, the commit is aborted. Skippable with --skip perl (for
+both) or --skip perlcompile and --skip perltidy.
 
 =item o shellcheck
 
-If shellcheck is available (and --skip shellcheck not specified), runs shellcheck against any file where the first line looks like a shell shebang or an emacs shell file marker.
+If shellcheck is available (and --skip shellcheck not specified), runs
+shellcheck against any file being checked in where the first line looks like a
+shell shebang or an emacs shell file marker.
 
 =item o git merge conflict markers
 
@@ -428,8 +444,8 @@ We don't let you commit code with conflict markers.
 None
 
 <soapbox> You'd think that git would pass us the files it's about to commit,
-but no; we have to run git status commands in porcelain mode to determine what
-files are about to be committed. </soapbox>
+but no; we have to run 'git status --porcelain' and parse the output determine
+what files are about to be committed. </soapbox>
 
 =over 4
 
@@ -437,26 +453,29 @@ files are about to be committed. </soapbox>
 
 =head1 OPTIONS
 
-When running with a real commit, options must be passed in the envvar
-GIT_PRE_COMMIT_HOOK_ARGS as a single string before the git command:
+When running during a real commit, options must be passed in the envvar
+GIT_PRE_COMMIT_HOOK_ARGS (or the shorter GPCHA) as a single string before the
+git command:
 
     GIT_PRE_COMMIT_HOOK_ARGS="--quiet --skip perltidy" git commit ...
 
-Note that we filter out --help if you specify it.
+Note that we filter out '--help' and '-a' if you specify them; they do not
+apply when using the hook in a real commit. They are only provided for use when
+you are running the hook itself as a script.
 
 =over 4
 
 =item -a
 
-Mimic the -a of git commit and process all files that are modified, staged or
-not. This is only needed for test mode; in live mode, if you pass -a to git
-commit, by the time the hook is invoked, even the non-staged files appear to be
+Mimic the '-a' of 'git commit' and process all files that are modified, staged
+or not. This is only needed for test mode; in live mode, if you pass '-a' to 'git
+commit', by the time the hook is invoked, even the non-staged files appear to be
 staged. Do NOT use this on a real commit; let the commit command Do The Right
 Thing.
 
 =item --quiet
 
-Do not print the progress messages in from the hook.
+Do not print the progress messages from the hook.
 
 =item --skip
 
@@ -467,6 +486,9 @@ Skip one or more validations:
   perl (both compile and tidy)
   shellcheck
   shell (short for shellcheck)
+
+In order to just skip the whole hook, use the '--no-verify' option to 'git
+commit'.
 
 =back
 
