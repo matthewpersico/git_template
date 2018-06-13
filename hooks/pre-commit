@@ -131,18 +131,29 @@ check ()
 ##
 ## Get the list of files being committed
 ##
-declare -a files
+declare -a gitobjs
 if ((opt_a))
 then
     ## Like git's -a, process modified files even if not 'git add'ed
-    readarray -t files < <(git status --porcelain  | perl -ane 'print $F[1],qq(\n) if m/^[ACM] / or m/^.[ACM]/')
+    readarray -t gitobjs < <(git status --porcelain  | perl -ane 'print $F[1],qq(\n) if m/^[ACM] / or m/^.[ACM]/')
 else
-    readarray -t files < <(git status --porcelain  | perl -ane 'print $F[1],qq(\n) if m/^[ACM] /')
+    readarray -t gitobjs < <(git status --porcelain  | perl -ane 'print $F[1],qq(\n) if m/^[ACM] /')
 fi
-declare -a delfiles
-readarray -t delfiles < <(git status --porcelain  | perl -ane 'print $F[1],qq(\n) if m/^D /')
-declare -a huhfiles
-readarray -t huhfiles < <(git status --porcelain  | perl -ane 'print $F[1],qq(\n) if m/^\? /')
+declare -a files
+declare -a nonfiles
+for obj in "${gitobjs[@]}"
+do
+    if [[ -f $obj ]]
+    then
+        files+=("$obj")
+    else
+        nonfiles+=("$obj")
+    fi
+done
+declare -a delgitobjs
+readarray -t delgitobjs < <(git status --porcelain  | perl -ane 'print $F[1],qq(\n) if m/^D /')
+declare -a huhgitobjs
+readarray -t huhgitobjs < <(git status --porcelain  | perl -ane 'print $F[1],qq(\n) if m/^\? /')
 
 if ((opt_verbose))
 then
@@ -157,29 +168,30 @@ then
     \rm -f "$tmpf"
 
     declare fcount
+    declare text
+
     fcount=${#files[@]}
-    declare text='files to process'
+    text='files to process'
     ((fcount == 1 )) && text='file to process'
     pre_commit_ok_echo "$fcount" "$text"
 
-    fcount=${#delfiles[@]}
-    text='files to be skipped because they are being deleted'
-    if ((fcount))
-    then
-        ((fcount == 1 )) && text='file to be skipped because it is being deleted'
-        echo pre-commit  hook: "$fcount" "$text"
-    fi
+    fcount=${#nonfiles[@]}
+    text='non-files to process'
+    ((fcount == 1 )) && text='non-file to process'
+    pre_commit_ok_echo "$fcount" "$text"
 
-    fcount=${#huhfiles[@]}
-    text='files to be skipped because they are not being tracked'
-    if ((fcount))
-    then
-        ((fcount == 1 )) && text='file to be skipped because it is not being tracked'
-        echo pre-commit  hook: "$fcount" "$text"
-    fi
+    fcount=${#delgitobjs[@]}
+    text='git objects to be skipped because they are being deleted'
+    ((fcount == 1 )) && text='git object to be skipped because it is being deleted'
+    pre_commit_ok_echo "$fcount" "$text"
+
+    fcount=${#huhgitobjs[@]}
+    text='git objects to be skipped because they are not being tracked'
+    ((fcount == 1 )) && text='git object to be skipped because it is not being tracked'
+    pre_commit_ok_echo "$fcount" "$text"
 fi
 
-## Isolate groups of files here. So far, only checking for Perl.
+## Isolate groups of files here.
 declare -a perlfiles
 declare -a shellfiles
 declare do_shellcheck=0
