@@ -91,6 +91,8 @@ trap finish EXIT SIGINT
 ## Assume correctness
 declare exitval=0
 
+gitroot=$(git rev-parse --show-toplevel)
+
 ##
 ## Functions
 ##
@@ -191,13 +193,39 @@ then
     pre_commit_ok_echo "$fcount" "$text"
 fi
 
+##
+## Do filtering
+##
+declare -A fileskips
+declare ignore_file="$gitroot/.pre-commit-ignore"
+if [[ -r "$ignore_file" ]]
+then
+    while read -r fs
+    do
+        fileskips[$fs]=1
+    done < <(cat "$ignore_file")
+
+    declare -a filtered_files
+    declare file
+    for file in "${files[@]}"
+    do
+        if [ -z "${fileskips[$file]}" ]
+        then
+            filtered_files+=("$file")
+        fi
+    done
+    files=("${filtered_files[@]}")
+fi
+
+##
 ## Isolate groups of files here.
+##
 declare -a perlfiles
 declare -a shellfiles
 declare do_shellcheck=0
 declare file
 
-( [ -z "${skips[shellcheck]}" ] && [ -z "${skips[shell]}" ] ) \
+{ [ -z "${skips[shellcheck]}" ] && [ -z "${skips[shell]}" ] ; } \
     && shellcheck -V 1>/dev/null 2>&1 && do_shellcheck=1
 for file in "${files[@]}"
 do
@@ -269,8 +297,6 @@ then
         check "$tfile" \
               "One or more files is using the TestingUtils module. Please remove it." \
               "TestingUtils module not found."
-
-        gitroot=$(git rev-parse --show-toplevel)
 
         ##
         ## check: repo compile tests
@@ -501,6 +527,20 @@ Skip one or more validations:
 
 In order to just skip the whole hook, use the '--no-verify' option to 'git
 commit'.
+
+=back
+
+=head1 FILES
+
+=over 4
+
+=item .pre-commit-ignore file
+
+Like .git-ignore, if there are files you do not want to be checked in the hook,
+add them to .pre-commit-ignore. At this time, no wildcards or plain directories
+are accepted. Each line must be a full file path relative to the root of the
+git repo. Make sure the last line ends in a newline or you'll miss the last
+entry in the file.
 
 =back
 
