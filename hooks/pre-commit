@@ -174,23 +174,23 @@ then
 
     fcount=${#files[@]}
     text='files to process'
-    ((fcount == 1 )) && text='file to process'
+    (( fcount == 1 )) && text='file to process'
     pre_commit_ok_echo "$fcount" "$text"
 
     fcount=${#nonfiles[@]}
     text='non-files to process'
-    ((fcount == 1 )) && text='non-file to process'
-    pre_commit_ok_echo "$fcount" "$text"
+    (( fcount == 1 )) && text='non-file to process'
+    (( fcount > 0 )) && pre_commit_ok_echo "$fcount" "$text"
 
     fcount=${#delgitobjs[@]}
     text='git objects to be skipped because they are being deleted'
-    ((fcount == 1 )) && text='git object to be skipped because it is being deleted'
-    pre_commit_ok_echo "$fcount" "$text"
+    (( fcount == 1 )) && text='git object to be skipped because it is being deleted'
+    (( fcount > 0 )) && pre_commit_ok_echo "$fcount" "$text"
 
     fcount=${#huhgitobjs[@]}
     text='git objects to be skipped because they are not being tracked'
-    ((fcount == 1 )) && text='git object to be skipped because it is not being tracked'
-    pre_commit_ok_echo "$fcount" "$text"
+    (( fcount == 1 )) && text='git object to be skipped because it is not being tracked'
+    (( fcount > 0 )) && pre_commit_ok_echo "$fcount" "$text"
 fi
 
 ##
@@ -261,7 +261,7 @@ then
     done
     check "$tfile" \
           "Write your emacs buffers for these files:" \
-          "No open emacs buffers."
+          "" ##"No open emacs buffers."
 
     ##
     ## check: constructs for bypassed or dead code
@@ -272,12 +272,12 @@ then
     grep -H -n -E -i '=for (later|comparison|commentout|review)' "${files[@]}" 1>"$tfile" 2>&1
     check "$tfile" \
           "One or more files contain suspicious Perl commenting. Delete old code, do not just comment it out. Don't add inactive code until you are ready to use it." \
-          "No suspicious Perl commenting, old code."
+          "" #"No suspicious Perl commenting, old code."
 
     grep -H -n -E -i '=for (remove|restore)_before_commit' "${files[@]}" 1>"$tfile" 2>&1
     check "$tfile" \
           "One or more files contain suspicious Perl commenting. Put back original code; remove your short term test changes." \
-          "No suspicious Perl commenting, test code."
+          "" #"No suspicious Perl commenting, test code."
 
     if ((${#perlfiles[@]}))
     then
@@ -288,44 +288,51 @@ then
         grep -H -n -E '\$DB::s(ingle|tep)' "${perlfiles[@]}" 1>"$tfile" 2>&1
         check "$tfile" \
               "One or more files has Perl-debugger-related statements. Please remove instrumentation." \
-              "No Perl-debugger-related statements."
+              "" #"No Perl-debugger-related statements."
 
         ##
         ## check: testing utilities left in the code
+        ## BB SPECIFIC
         ##
         grep -H -n -E 'TestingUtils' "${perlfiles[@]}" | grep -v TestingUtils.pm  1>"$tfile" 2>&1
         check "$tfile" \
               "One or more files is using the TestingUtils module. Please remove it." \
-              "TestingUtils module not found."
+              "" #"TestingUtils module not found."
 
         ##
         ## check: repo compile tests
         ##
-
-        ## If the repo has them, piggy back off of them
         if [ -n "${skips[perlcompile]}" ] \
                || [ -n "${skips[perl]}" ]
         then
             ((opt_verbose)) && pre_commit_ok_echo "Skipping Perl compile check, by request."
-        elif [ ! -e "$gitroot/t/bin/apply-compile-check-everywhere" ]
-        then
-            ((opt_verbose)) && pre_commit_ok_echo "Skipping Perl compile check, no test file."
         else
-            cartonexec=''
-            if [ -e "$gitroot/runtests.local" ]
+            runcheck=0
+            if [ -e "$gitroot/t/bin/apply-compile-check-everywhere" ]
             then
-                pre_commit_ok_echo "Sourcing $gitroot/runtests.local for perl compile tests."
-                # shellcheck disable=SC1090
-                . "/$gitroot/runtests.local"
-                if [ "$RUNTESTS_USE_CARTON" = '1' ]
+                cartonexec=''
+                if [ -e "$gitroot/runtests.local" ]
                 then
-                    cartonexec='carton exec'
+                    pre_commit_ok_echo "Sourcing $gitroot/runtests.local for perl compile tests."
+                    # shellcheck disable=SC1090
+                    . "/$gitroot/runtests.local"
+                    if [ "$RUNTESTS_USE_CARTON" = '1' ]
+                    then
+                        cartonexec='carton exec'
+                    fi
                 fi
+                $cartonexec "$gitroot/t/bin/apply-compile-check-everywhere" "${perlfiles[@]}" 1>"$tfile" 2>&1
+                runcheck=1
+            elif [ -e "${TILDAE:-$HOME}/personal/bin/apply-compile-check-everywhere" ]
+            then
+                "${TILDAE:-$HOME}/personal/bin/apply-compile-check-everywhere" "${perlfiles[@]}" 1>"$tfile" 2>&1
+                runcheck=1
+            else
+                ((opt_verbose)) && pre_commit_ok_echo "Skipping Perl compile check, no perl compile check helpers found."
             fi
-            $cartonexec "$gitroot/t/bin/apply-compile-check-everywhere" "${perlfiles[@]}" 1>"$tfile" 2>&1
-            check "$tfile" \
-                  "One or more files has syntax errors. Please review." \
-                  "No Perl compile errors."
+            ((runcheck==1)) && check "$tfile" \
+                                     "One or more files has syntax errors. Please review." \
+                                     "" #"No Perl compile errors."
         fi
 
         ##
@@ -337,14 +344,22 @@ then
                || [ -n "${skips[perl]}" ]
         then
             ((opt_verbose)) && pre_commit_ok_echo "Skipping Perl perltidy check, by request."
-        elif [ ! -e "$gitroot/t/bin/apply-perltidy-everywhere" ]
-        then
-            ((opt_verbose)) && pre_commit_ok_echo "Skipping Perl perltidy check, no test file."
         else
-            "$gitroot/t/bin/apply-perltidy-everywhere" "${perlfiles[@]}" 1>"$tfile" 2>&1
-            check "$tfile" \
-                  "One or more files has formatting errors. Please review." \
-                  "No Perl perltidy errors."
+            runcheck=0
+            if [ -e "$gitroot/t/bin/apply-perltidy-everywhere" ]
+            then
+                "$gitroot/t/bin/apply-perltidy-everywhere" "${perlfiles[@]}" 1>"$tfile" 2>&1
+                runcheck=1
+            elif [ -e "${TILDAE:-$HOME}/personal/bin/apply-perltidy-everywhere" ]
+            then
+                "${TILDAE:-$HOME}/personal/bin/apply-perltidy-everywhere" "${perlfiles[@]}" 1>"$tfile" 2>&1
+                runcheck=1
+            else
+                ((opt_verbose)) && pre_commit_ok_echo "Skipping Perl perltidy, no perl perltidy helpers found."
+            fi
+            ((runcheck==1)) && check "$tfile" \
+                                     "One or more files has formatting errors. Please review." \
+                                     "" #"No Perl perltidy errors."
         fi
     fi
 
@@ -355,7 +370,7 @@ then
             shellcheck "${shellfiles[@]}" 1>"$tfile" 2>&1
             check "$tfile" \
                   "One of more files has failed shellcheck checks. Please review." \
-                  "No shellcheck errors."
+                  "" #"No shellcheck errors."
         else
             echo "Skipping shell checks, 'shellcheck' not found."
         fi
@@ -367,7 +382,7 @@ then
     grep -H -n -E '^<<<<<<<|>>>>>>>$' "${files[@]}" 1>"$tfile" 2>&1
     check "$tfile" \
           "One or more files contains a git conflict marker. Please address." \
-          "No git conflict markers."
+          "" #"No git conflict markers."
 
     ##
     ## check: git commit stop check
@@ -381,7 +396,7 @@ then
     grep -H -n -E '<(gitcommitstop|GCS)>' "${files[@]}" | grep -v '<GCSLITERAL>' 1>"$tfile" 2>&1
     check "$tfile" \
           "One or more files has an explicit commit stop. Please address." \
-          "No explicit commit stops."
+          "" #"No explicit commit stops."
 fi
 
 ##
