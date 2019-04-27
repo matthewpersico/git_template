@@ -27,6 +27,9 @@ declare moreopts
 declare helpnotallowed=0
 declare opt_a_notallowed=0
 moreopts=1
+
+pre_commit_ok_echo "Original args to hook: $*"
+
 if [ -n "$GIT_PRE_COMMIT_HOOK_ARGS" ] \
        || [ -n "$GPCHA" ]
 then
@@ -138,6 +141,7 @@ if ((opt_a))
 then
     ## Like git's -a, process modified files even if not 'git add'ed
     readarray -t gitobjs < <(git status --porcelain  | perl -ane 'print $F[1],qq(\n) if m/^[ACM] / or m/^.[ACM]/')
+    pre_commit_ok_echo "We just processed -a inside the hook"
 else
     readarray -t gitobjs < <(git status --porcelain  | perl -ane 'print $F[1],qq(\n) if m/^[ACM] /')
 fi
@@ -223,10 +227,14 @@ fi
 declare -a perlfiles
 declare -a shellfiles
 declare do_shellcheck=0
+declare -a pythonfiles
+declare do_python=0
 declare file
 
 { [ -z "${skips[shellcheck]}" ] && [ -z "${skips[shell]}" ] ; } \
     && shellcheck -V 1>/dev/null 2>&1 && do_shellcheck=1
+{ [ -z "${skips[python]}" ] && [ -z "${skips[py]}" ] ; } \
+    && python -V 1>/dev/null 2>&1 && do_python=1
 for file in "${files[@]}"
 do
     if head -1 "$file" | grep perl | grep -E '^#!' > /dev/null \
@@ -237,6 +245,11 @@ do
     elif head -1 "$file" | grep -E -- '-\*- sh|env bash|/bash|/sh' 1>/dev/null 2>&1
     then
         shellfiles+=("$file")
+    elif head -1 "$file" | grep python | grep -E '^#!' > /dev/null \
+            ||
+            echo "$file" | grep -iE '\.py$' > /dev/null
+    then
+        pythonfiles+=("$file")
     fi
 done
 
@@ -372,10 +385,22 @@ then
                   "One of more files has failed shellcheck checks. Please review." \
                   "" #"No shellcheck errors."
         else
-            echo "Skipping shell checks, 'shellcheck' not found."
+            echo "Skipping shell checks, by request."
         fi
     fi
 
+    if ((${#pythonfiles[@]}))
+    then
+        if ((do_python==1))
+        then
+            black --check "${pythonfiles[@]}" 1>"$tfile" 2>&1
+            check "$tfile" \
+                  "One of more files has failed python black checks. Please review." \
+                  "" #"No python black errors."
+        else
+            echo "Skipping python black, by request."
+        fi
+    fi
     ##
     ## check; git conflict markers
     ##
@@ -539,6 +564,8 @@ Skip one or more validations:
   perl (both compile and tidy)
   shellcheck
   shell (short for shellcheck)
+  python (black format check)
+  py (short for python)
 
 In order to just skip the whole hook, use the '--no-verify' option to 'git
 commit'.
