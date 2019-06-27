@@ -57,6 +57,11 @@ do
             fi
             ;;
         s|skip)
+            if [ "$1" == 'all' ]
+            then
+                echo "SKIP ALL - PRE_COMMIT HOOK EXITS 0"
+                exit 0
+            fi
             skips[$1]=1;
             shift ;;
         q|quiet)
@@ -567,8 +572,10 @@ Skip one or more validations:
   python (black format check)
   py (short for python)
 
-In order to just skip the whole hook, use the '--no-verify' option to 'git
-commit'.
+  all - use this to just skip the whole hook. If using a git commit command,
+  you could just specify '--no-verify' to 'git commit' to skip the hook, but if
+  the commit is called from within some other code, you'll need some other way
+  to skip the hook; this is it.
 
 =back
 
