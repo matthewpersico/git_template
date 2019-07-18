@@ -5,9 +5,9 @@
 ##
 
 ## Don't do my checks if I say not to
-if [ "$GIT_PRE_COMMIT_HOOK_SKIP" = '1' ]
+if [ "$GIT_COMMIT_NO_VERIFY" = '1' ]
 then
-    echo "****** GIT_PRE_COMMIT_HOOK_SKIP='1'. Skipping hook. ******" >&2
+    echo "****** GIT_COMMIT_NO_VERIFY='1'. Skipping hook. ******" >&2
     exit 0
 fi
 
