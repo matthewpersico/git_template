@@ -4,6 +4,13 @@
 ## Various checks, pre-commit
 ##
 
+## Don't do my checks if I say not to
+if [ "$GIT_COMMIT_NO_VERIFY" = '1' ]
+then
+    echo "****** GIT_COMMIT_NO_VERIFY='1'. Skipping hook. ******" >&2
+    exit 0
+fi
+
 ## Don't do my checks if Perl testing involves git commands.
 [ "$HARNESS_ACTIVE" = '1' ] && exit 0
 
@@ -115,21 +122,23 @@ finish ()
 
 check ()
 {
-    local tfile=$1
-    shift
-    local tcount
-    tcount=$(wc -l "$tfile" | sed 's/ .*//')
-    if [ "$tcount" != 0 ]
+    local tfile=$1; shift
+    local errmsg=$1; shift
+    local status=$1; shift
+
+    if [ -z "$status" ]
+    then
+        status=$(wc -l "$tfile" | sed 's/ .*//')
+    fi
+    if [ "$status" != 0 ]
     then
         ## This is the error message
         echo
-        pre_commit_error_echo "$1"
+        pre_commit_error_echo "$errmsg"
         cat "$tfile"
         exitval=1
         return 1
     else
-        ## This is the ok message
-        [ -n "$2" ] && ((opt_verbose==1)) && pre_commit_ok_echo "$2"
         return 0
     fi
 }
@@ -247,7 +256,7 @@ do
             echo "$file" | grep -iE '\.(p[ml]|t|sgi)$' > /dev/null
     then
         perlfiles+=("$file")
-    elif head -1 "$file" | grep -E -- '-\*- sh|env bash|/bash|/sh' 1>/dev/null 2>&1
+    elif head -1 "$file" | grep -E -- '-\*- (sh|env bash|/bash|/sh)' 1>/dev/null 2>&1
     then
         shellfiles+=("$file")
     elif head -1 "$file" | grep python | grep -E '^#!' > /dev/null \
@@ -278,8 +287,7 @@ then
         fi
     done
     check "$tfile" \
-          "Write your emacs buffers for these files:" \
-          "" ##"No open emacs buffers."
+          "Write your emacs buffers for these files:"
 
     ##
     ## check: constructs for bypassed or dead code
@@ -289,13 +297,11 @@ then
     ## file type.
     grep -H -n -E -i '=for (later|comparison|commentout|review)' "${files[@]}" 1>"$tfile" 2>&1
     check "$tfile" \
-          "One or more files contain suspicious Perl commenting. Delete old code, do not just comment it out. Don't add inactive code until you are ready to use it." \
-          "" #"No suspicious Perl commenting, old code."
+          "One or more files contain suspicious Perl commenting. Delete old code, do not just comment it out. Don't add inactive code until you are ready to use it."
 
     grep -H -n -E -i '=for (remove|restore)_before_commit' "${files[@]}" 1>"$tfile" 2>&1
     check "$tfile" \
-          "One or more files contain suspicious Perl commenting. Put back original code; remove your short term test changes." \
-          "" #"No suspicious Perl commenting, test code."
+          "One or more files contain suspicious Perl commenting. Put back original code; remove your short term test changes."
 
     if ((${#perlfiles[@]}))
     then
@@ -305,8 +311,7 @@ then
         # shellcheck disable=2016
         grep -H -n -E '\$DB::s(ingle|tep)' "${perlfiles[@]}" 1>"$tfile" 2>&1
         check "$tfile" \
-              "One or more files has Perl-debugger-related statements. Please remove instrumentation." \
-              "" #"No Perl-debugger-related statements."
+              "One or more files has Perl-debugger-related statements. Please remove instrumentation."
 
         ##
         ## check: testing utilities left in the code
@@ -314,8 +319,7 @@ then
         ##
         grep -H -n -E 'TestingUtils' "${perlfiles[@]}" | grep -v TestingUtils.pm  1>"$tfile" 2>&1
         check "$tfile" \
-              "One or more files is using the TestingUtils module. Please remove it." \
-              "" #"TestingUtils module not found."
+              "One or more files is using the TestingUtils module. Please remove it."
 
         ##
         ## check: repo compile tests
@@ -349,8 +353,7 @@ then
                 ((opt_verbose)) && pre_commit_ok_echo "Skipping Perl compile check, no perl compile check helpers found."
             fi
             ((runcheck==1)) && check "$tfile" \
-                                     "One or more files has syntax errors. Please review." \
-                                     "" #"No Perl compile errors."
+                                     "One or more files has syntax errors. Please review."
         fi
 
         ##
@@ -376,8 +379,7 @@ then
                 ((opt_verbose)) && pre_commit_ok_echo "Skipping Perl perltidy, no perl perltidy helpers found."
             fi
             ((runcheck==1)) && check "$tfile" \
-                                     "One or more files has formatting errors. Please review." \
-                                     "" #"No Perl perltidy errors."
+                                     "One or more files has formatting errors. Please review."
         fi
     fi
 
@@ -387,8 +389,7 @@ then
         then
             shellcheck "${shellfiles[@]}" 1>"$tfile" 2>&1
             check "$tfile" \
-                  "One of more files has failed shellcheck checks. Please review." \
-                  "" #"No shellcheck errors."
+                  "One of more files has failed shellcheck checks. Please review."
         else
             echo "Skipping shell checks, by request."
         fi
@@ -399,9 +400,10 @@ then
         if ((do_python==1))
         then
             black --check "${pythonfiles[@]}" 1>"$tfile" 2>&1
+            declare blackrc=$?
             check "$tfile" \
                   "One of more files has failed python black checks. Please review." \
-                  "" #"No python black errors."
+                  "$blackrc"
         else
             echo "Skipping python black, by request."
         fi
@@ -411,8 +413,7 @@ then
     ##
     grep -H -n -E '^<<<<<<<|>>>>>>>$' "${files[@]}" 1>"$tfile" 2>&1
     check "$tfile" \
-          "One or more files contains a git conflict marker. Please address." \
-          "" #"No git conflict markers."
+          "One or more files contains a git conflict marker. Please address."
 
     ##
     ## check: git commit stop check
@@ -425,8 +426,7 @@ then
     ## GCSLITERAL caveat.
     grep -H -n -E '<(gitcommitstop|GCS)>' "${files[@]}" | grep -v '<GCSLITERAL>' 1>"$tfile" 2>&1
     check "$tfile" \
-          "One or more files has an explicit commit stop. Please address." \
-          "" #"No explicit commit stops."
+          "One or more files has an explicit commit stop. Please address."
 fi
 
 ##
