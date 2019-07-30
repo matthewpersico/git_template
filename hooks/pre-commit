@@ -329,7 +329,7 @@ then
         then
             ((opt_verbose)) && pre_commit_ok_echo "Skipping Perl compile check, by request."
         else
-            runcheck=0
+            declare runcheck=0
             if [ -e "$gitroot/t/bin/apply-compile-check-everywhere" ]
             then
                 cartonexec=''
@@ -359,27 +359,33 @@ then
         ##
         ## check: repo tidy tests
         ##
-
-        ## If the repo has them, piggy back off of them
         if [ -n "${skips[perltidy]}" ] \
                || [ -n "${skips[perl]}" ]
         then
             ((opt_verbose)) && pre_commit_ok_echo "Skipping Perl perltidy check, by request."
         else
-            runcheck=0
-            if [ -e "$gitroot/t/bin/apply-perltidy-everywhere" ]
+            declare remediation
+            declare tidycmd
+            declare runcheck=0
+            for tidycmd in \
+                "$gitroot/t/bin/apply-perltidy-everywhere" \
+                    "${TILDAE:-$HOME}/personal/bin/apply-perltidy-everywhere"
+            do
+                if [ -e "$tidycmd" ]
+                then
+                    "$tidycmd" "${perlfiles[@]}" 1>"$tfile" 2>&1
+                    runcheck=1
+                    remediation="To correct, run $tidycmd --update ${perlfiles[*]}"
+                    break
+                fi
+            done
+            if ((runcheck==1))
             then
-                "$gitroot/t/bin/apply-perltidy-everywhere" "${perlfiles[@]}" 1>"$tfile" 2>&1
-                runcheck=1
-            elif [ -e "${TILDAE:-$HOME}/personal/bin/apply-perltidy-everywhere" ]
-            then
-                "${TILDAE:-$HOME}/personal/bin/apply-perltidy-everywhere" "${perlfiles[@]}" 1>"$tfile" 2>&1
-                runcheck=1
+                check "$tfile" \
+                      "One or more files has formatting errors. Please review. $remediation"
             else
                 ((opt_verbose)) && pre_commit_ok_echo "Skipping Perl perltidy, no perl perltidy helpers found."
             fi
-            ((runcheck==1)) && check "$tfile" \
-                                     "One or more files has formatting errors. Please review."
         fi
     fi
 
