@@ -405,7 +405,7 @@ then
     then
         if ((do_python==1))
         then
-            black --check "${pythonfiles[@]}" 1>"$tfile" 2>&1
+            black -q --check "${pythonfiles[@]}" 1>"$tfile" 2>&1
             declare blackrc=$?
             check "$tfile" \
                   "One of more files has failed python black checks. Please review." \
