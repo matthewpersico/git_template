@@ -30,6 +30,7 @@ check ()
     local tfile=$1; shift
     local errmsg=$1; shift
     local status=$1; shift
+    local info=$1; shift
 
     if [ -z "$status" ]
     then
@@ -39,12 +40,29 @@ check ()
     then
         ## This is the error message
         echo
-        pre_commit_error_echo "$errmsg"
-        cat "$tfile"
-        exitval=1
-        return 1
+        if [[ -z $info ]]
+        then
+            pre_commit_error_echo "$errmsg"
+            cat "$tfile"
+            exitval=1
+            return 1
+        else
+            pre_commit_info_echo "$errmsg"
+            cat "$tfile"
+            return 0
+        fi
     else
         return 0
+    fi
+}
+
+notify ()
+{
+    if [[ $# = '2' ]]
+    then
+        check "$@" '' info
+    else
+        check "$@" info
     fi
 }
 
@@ -56,6 +74,11 @@ pre_commit_ok_echo ()
 pre_commit_error_echo ()
 {
     echo 'ERROR>>>' pre-commit hook: "$@"
+}
+
+pre_commit_info_echo ()
+{
+    echo 'INFO>>>' pre-commit hook: "$@"
 }
 
 ##
@@ -417,14 +440,34 @@ then
     ## check: git commit stop check
     ##
 
-    ## As a last resort, we allow the text strings <gitcommitstop> and <GCS>,
+    ## As a last resort, we allow the text string <GCS>,
     ## usually as comment in the given language, to be used to stop the commit
     ## of code that we know we need to clean up before committing. In the
     ## limited number of utilities that manipulate files with GCS, we add the
     ## GCSLITERAL caveat.
-    grep -H -n -E '<(gitcommitstop|GCS)>' "${files[@]}" | grep -v '<GCSLITERAL>' 1>"$tfile" 2>&1
+    grep -H -n -E '<GCS>' "${files[@]}" | grep -v '<GCSLITERAL>' 1>"$tfile" 2>&1
     check "$tfile" \
           "One or more files has an explicit commit stop. Please address."
+
+    ## As a last-last resort, for those files where we cannot add a comment, we
+    ## add the repo-root-relative path to the file to a .gcs file.
+    if [[ -r $gitroot/.gcs ]]
+    then
+         echo '' >"$tfile"
+         declare file
+         for file in "${files[@]}"
+         do
+             grep "$file" $gitroot/.gcs | grep -v ':ignore' >> "$tfile"
+         done
+         check "$tfile" \
+               "One or more files has an implicit commit stop in $gitroot/.gcs. Please address."
+         for file in "${files[@]}"
+         do
+             grep "$file" $gitroot/.gcs | grep ':ignore' >> "$tfile"
+         done
+         notify "$tfile" \
+                "One or more files has an implicit commit stop *ignore* in $gitroot/.gcs. Continuing."
+    fi
 fi
 
 ##
