@@ -98,6 +98,9 @@ declare exitval=0 ## Assume correctness.
 declare gitroot
 gitroot=$(git rev-parse --show-toplevel)
 
+declare gcsfile
+gcsfile="$gitroot/.gcs"
+
 ##
 ## args and opts
 ##
@@ -449,27 +452,33 @@ then
           "One or more files has an explicit commit stop. Please address."
 
     ## As a last-last resort, for those files to which we cannot add a comment,
-    ## we add the repo-root-relative path to the file to a .gcs file.
-    if [[ -r $gitroot/.gcs ]]
+    ## or for files that have the <GCSLITERAL> in them, BUT for which we are
+    ## working on and have other sections that we really don't want to commit,
+    ## we add the repo-root-relative path to the file to a .gcs file,
+    ## indicating that no matter what, do not commit this file.
+    if [[ -r $gcsfile ]]
     then
          echo '' >"$tfile"
          declare file
          for file in "${files[@]}"
          do
-             grep "$file" $gitroot/.gcs | grep -v ':ignore' >> "$tfile"
+             grep "$file" "$gcsfile" | grep -v ':ignore' >> "$tfile"
          done
          check "$tfile" \
-               "One or more files has an implicit commit stop in $gitroot/.gcs. Please address."
+               "One or more files has an implicit commit stop in $gcsfile. Please address."
+
          ## As a last-last-last resort, we put in an escape hatch; if the file
-         ## has <GCS> markers in it, we put the repo-root-relative path in the
-         ## .gcs with a :ignore directive. That's an easy way to get files that
-         ## process GCS directives (like this one) past the hook.
+         ## has <GCS> markers in it that are supposed to be literal (and we
+         ## have forgotten about GCSLITERAL ::face_palm), we put the
+         ## repo-root-relative path in the .gcs with a :ignore
+         ## directive. That's an easy way to get files that process GCS
+         ## directives (like this one) past the hook.
          for file in "${files[@]}"
          do
-             grep "$file" $gitroot/.gcs | grep ':ignore' >> "$tfile"
+             grep "$file" "$gcsfile" | grep ':ignore' >> "$tfile"
          done
          notify "$tfile" \
-                "One or more files has an implicit commit stop *ignore* in $gitroot/.gcs. Continuing."
+                "One or more files has an implicit commit stop *ignore* in $gcsfile. Continuing."
     fi
 fi
 
